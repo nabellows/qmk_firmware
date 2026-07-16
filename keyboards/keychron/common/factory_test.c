@@ -262,7 +262,7 @@ bool process_record_factory_test(uint16_t keycode, keyrecord_t *record) {
             if (record->event.pressed) {
                 factory_reset_state |= KEY_PRESS_J;
                 if (factory_reset_state == 0x07) factory_timer_start();
-                if ((factory_reset_state & KEY_PRESS_FN) && keycode == KC_J) return false;
+                // if ((factory_reset_state & KEY_PRESS_FN) && keycode == KC_J) return false;
             } else {
                 factory_reset_state &= ~KEY_PRESS_J;
                 factory_reset_timer = 0;
@@ -280,7 +280,7 @@ bool process_record_factory_test(uint16_t keycode, keyrecord_t *record) {
             if (record->event.pressed) {
                 factory_reset_state |= KEY_PRESS_Z;
                 if (factory_reset_state == 0x07) factory_timer_start();
-                if ((factory_reset_state & KEY_PRESS_FN) && keycode == KC_Z) return false;
+                // if ((factory_reset_state & KEY_PRESS_FN) && keycode == KC_Z) return false;
             } else {
                 factory_reset_state &= ~KEY_PRESS_Z;
                 factory_reset_timer = 0;

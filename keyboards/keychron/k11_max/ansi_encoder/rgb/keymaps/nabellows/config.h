@@ -5,10 +5,11 @@
 // default hold-and-repeat behavior that is otherwise made impossible by tap-hold configs. I don't generally want this (yet??).
 // If I did, I would need to define it per key as it makes zero sense for ctrl/esc
 #define QUICK_TAP_TERM 0
-// The tap vs hold behavior that most matches me - I am tolerant of any keypress being considered a mod/hold combo while a mod key being down
-#define HOLD_ON_OTHER_KEY_PRESS
 #define CAPS_WORD_INVERT_ON_SHIFT // CAPS_WORD by default would disable when shift is pressed, now it will invert shift for _/-, a-z, space
-#define CAPS_WORD_IDLE_TIMEOUT 0 // There is a feature to auto timeout, lets not use it for now
+#define CAPS_WORD_IDLE_TIMEOUT 5000 // Disable CAPS_WORD if nothing pressed for 5 seconds
+
+#define PERMISSIVE_HOLD_PER_KEY
+#define HOLD_ON_OTHER_KEY_PRESS_PER_KEY
 
 #define COMBO_TERM_PER_COMBO
 #define KEY_OVERRIDE_INCLUDE_WEAK_MODS

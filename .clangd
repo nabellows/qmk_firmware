@@ -21,7 +21,7 @@ CompileFlags:
             -D__has_include*,
             -mlra,
         ]
-    Compiler: clang
+    Compiler: arm-none-eabi-gcc
 Diagnostics:
     UnusedIncludes: None
     Suppress:
