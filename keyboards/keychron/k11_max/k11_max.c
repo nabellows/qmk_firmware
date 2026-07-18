@@ -25,6 +25,7 @@ bool dip_switch_update_kb(uint8_t index, bool active) {
         default_layer_set(1UL << (active ? 0 : 1));
     }
     dip_switch_update_user(index, active);
+    factory_test_dip_switch_update(index, active);
 
     return true;
 }

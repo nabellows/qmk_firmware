@@ -16,6 +16,10 @@
 
 #pragma once
 
+#include <stdint.h>
+#include <stdbool.h>
+#include "action.h"
+
 void factory_test_init(void);
 #if defined(LED_MATRIX_ENABLE) || defined(RGB_MATRIX_ENABLE)
 bool factory_test_indicator(void);
@@ -26,3 +30,4 @@ void factory_test_task(void);
 void factory_test_rx(bool usb, uint8_t *data, uint8_t length);
 
 bool process_record_factory_test(uint16_t keycode, keyrecord_t *record);
+bool factory_test_dip_switch_update(uint8_t index, bool active);
