@@ -290,6 +290,11 @@ __attribute__((weak)) bool via_command_kb(uint8_t src, uint8_t *data, uint8_t le
     return false;
 }
 
+// NABELLOWS
+__attribute__((weak)) bool via_command_user(uint8_t src, uint8_t *data, uint8_t length) {
+    return false;
+}
+
 __attribute__((weak)) void via_raw_hid_send(uint8_t src, uint8_t *data, uint8_t length) {
     raw_hid_send(data, length);
 }
@@ -298,9 +303,9 @@ void raw_hid_receive(uint8_t src, uint8_t *data, uint8_t length) {
     uint8_t *command_id   = &(data[0]);
     uint8_t *command_data = &(data[1]);
 
-    // If via_command_kb() returns true, the command was fully
+    // If via_command_user() or via_command_kb() returns true, the command was fully
     // handled, including calling raw_hid_send()
-    if (via_command_kb(src, data, length)) {
+    if (via_command_user(src, data, length) || via_command_kb(src, data, length)) {
         return;
     }
 
