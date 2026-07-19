@@ -147,6 +147,13 @@ bool process_caps_word(uint16_t keycode, keyrecord_t* record) {
     caps_word_reset_idle_timer();
 #endif // CAPS_WORD_IDLE_TIMEOUT > 0
 
+// NABELLOWS: https://github.com/qmk/qmk_firmware/issues/26086
+#ifdef AUTO_SHIFT_ENABLE
+    del_weak_mods(get_autoshift_state() ? ~MOD_BIT(KC_LSFT) : 0xff);
+#else
+    clear_weak_mods();
+#endif // AUTO_SHIFT_ENABLE
+
     // From here on, we only take action on press events.
     if (!record->event.pressed) {
         return true;
@@ -233,11 +240,6 @@ bool process_caps_word(uint16_t keycode, keyrecord_t* record) {
 #endif // SWAP_HANDS_ENABLE
         }
 
-#ifdef AUTO_SHIFT_ENABLE
-        del_weak_mods(get_autoshift_state() ? ~MOD_BIT(KC_LSFT) : 0xff);
-#else
-        clear_weak_mods();
-#endif // AUTO_SHIFT_ENABLE
         if (caps_word_press_user(keycode)) {
 #ifdef CAPS_WORD_INVERT_ON_SHIFT
             if (held_mods) {
