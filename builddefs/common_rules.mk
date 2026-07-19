@@ -34,8 +34,8 @@ FORMAT = ihex
 OPT ?= s
 
 # Compiler flag to set the C and C++ language standard level
-CSTANDARD = -std=gnu11
-CXXSTANDARD = -std=gnu++14
+CSTANDARD ?= -std=gnu11
+CXXSTANDARD ?= -std=gnu++20
 
 # Speed up recompilations by opt-in usage of ccache
 USE_CCACHE ?= no
@@ -83,6 +83,7 @@ CFLAGS += -fcommon
 
 #---------------- C++ Compiler Options ----------------
 
+CXXFLAGS += $(CXXSTANDARD)
 CXXFLAGS += $(CXXDEFS)
 CXXFLAGS += -O$(OPT)
 # to suppress "warning: only initialized variables can be placed into program memory area"

@@ -17,7 +17,7 @@ from qmk.constants import QMK_FIRMWARE
 
 
 @lru_cache(maxsize=10)
-def system_libs(binary: str) -> List[Path]:
+def system_libs(binary: str, cpp: bool = False) -> List[Path]:
     """Find the system include directory that the given build tool uses.
     """
     cli.log.debug("searching for system library directory for binary: %s", binary)
@@ -25,7 +25,8 @@ def system_libs(binary: str) -> List[Path]:
     # Actually query xxxxxx-gcc to find its include paths.
     if binary.endswith("gcc") or binary.endswith("g++"):
         # (TODO): Remove 'stdin' once 'input' no longer causes issues under MSYS
-        result = cli.run([binary, '-E', '-Wp,-v', '-'], capture_output=True, check=True, stdin=None, input='\n')
+        cmd = [binary, '-x', 'c++' if cpp else 'c', '-E', '-Wp,-v', '-']
+        result = cli.run(cmd, capture_output=True, check=True, stdin=None, input='\n')
         paths = []
         for line in result.stderr.splitlines():
             if line.startswith(" "):
@@ -90,9 +91,10 @@ def parse_make_n(f: Iterator[str]) -> List[Dict[str, str]]:
                 # we have a hit!
                 this_cmd = m.group(1)
                 args = shlex.split(this_cmd)
+                cpp = ('c++' in args)
                 binary = shutil.which(args[0])
                 compiler_args = set(filter(lambda x: x.startswith('-m') or x.startswith('-f'), args))
-                for s in system_libs(binary):
+                for s in system_libs(binary, cpp):
                     args += ['-isystem', '%s' % s]
                 args.extend(cpu_defines(binary, ' '.join(shlex.quote(s) for s in compiler_args)))
                 args[0] = binary
