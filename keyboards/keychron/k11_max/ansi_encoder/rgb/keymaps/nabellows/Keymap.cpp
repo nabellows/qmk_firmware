@@ -37,6 +37,7 @@ typedef enum {
     T_CAPS_WORD = QK_CAPS_WORD_TOGGLE,
 } custom_kc_t;
 
+//TODO: tbh, should i just revert and let keychon steal this? This currently provides no value right
 bool dip_switch_update_user(uint8_t index, bool active) {
     if (index == 0) {
         int layer = active ? MAC_BASE : WIN_BASE;

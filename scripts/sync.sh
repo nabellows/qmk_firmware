@@ -90,7 +90,7 @@ git restore \
 
 # Patch SignalRGB silliness
 sed -i \
-    's/\<via_command_kb\>/via_command_user/g' \
+    's/\<via_command_kb\>/via_command_signalrgb/g' \
     "$SRGB_FILE_BASE.c"
 
 #
