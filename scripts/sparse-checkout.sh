@@ -5,4 +5,4 @@ for i in "${!keyboards[@]}"; do
         keyboards[i]="prefix${keyboards[$i]}"
     fi
 done
-git sparse-checkout set builddefs/ data/ docs/ drivers/ keyboards/keychron/common "${keyboards[@]/#/keyboards/}" layouts/ lib/ modules/ platforms/ quantum/ tests/ tmk_core/ users/ util/ scripts/
+git sparse-checkout set builddefs/ data/ docs/ drivers/ keyboards/keychron/common "${keyboards[@]/#/keyboards/}" layouts/ lib/ modules/ platforms/ quantum/ tests/ tmk_core/ users/ util/ scripts/ templates/
