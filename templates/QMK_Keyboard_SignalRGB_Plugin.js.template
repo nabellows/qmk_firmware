@@ -3,6 +3,7 @@
 ###vendorId###
 ###productId###
 ###publisher###
+###imageUrl###
 export function Documentation(){ return "qmk/srgbmods-qmk-firmware"; }
 export function DeviceType() { return "keyboard"; }
 ###size###
@@ -304,9 +305,5 @@ function hexToRgb(hex) {
 }
 
 export function Validate(endpoint) {
-	return endpoint.interface === 1;
-}
-
-export function Image() {
-	return "";
+	return endpoint.usage === 0x61 && endpoint.usage_page === 0xFF60;
 }

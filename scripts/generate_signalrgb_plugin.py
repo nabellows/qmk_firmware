@@ -1,23 +1,41 @@
 #!/usr/bin/env python3
-"""Generate SignalRGB QMK plugin sections from QMK info.json + VIA JSON.
+"""Generate a SignalRGB plugin from QMK's resolved keyboard metadata.
 
-The JavaScript body remains in a .js.template file. By default, the template is
-resolved as ../templates/QMK_Keyboard_SignalRGB_Plugin.js.template relative to
-this script, which is expected to live in <repo_root>/scripts/. Any line
-consisting only of
+The script is intended to live at:
+
+    <generator_repo>/scripts/generate_signalrgb_from_qmk.py
+
+Its default JavaScript template is therefore:
+
+    <generator_repo>/templates/QMK_Keyboard_SignalRGB_Plugin.js.template
+
+QMK itself is the single source of truth. The generator runs either:
+
+    qmk info -kb <keyboard> -f json --api
+
+or, when no keyboard argument is supplied:
+
+    qmk info -f json --api
+
+This lets QMK resolve the keyboard from its own configuration or directory-aware
+logic. The generator consumes ``rgb_matrix.layout`` from the resolved output. QMK may obtain that
+layout directly from JSON metadata or extract a legacy handwritten
+``g_led_config`` from keyboard C source; this script does not need to know which.
+The array order is the firmware LED order, while each entry supplies its matrix
+association, physical x/y position, and flags. For optional README image
+discovery, the script asks ``qmk env QMK_FIRMWARE`` for the checkout root,
+appends ``keyboards/<keyboard_folder>``, and walks that directory's parents.
+
+Any template line consisting only of:
 
     ###generatorName###
 
-is replaced by the corresponding generated section. Leading indentation on the
-placeholder line is applied to every emitted line.
+is replaced by the corresponding generated JavaScript section. Leading
+indentation on the placeholder line is applied to every emitted line.
 
 Built-in generators:
-    name, version, vendorId, productId, publisher, size,
+    name, version, vendorId, productId, publisher, imageUrl, size,
     vKeys, vKeyNames, vKeyPositions
-
-The default assumption is that RGB LED indices follow the selected QMK layout
-order, so vKeys is [0, 1, ..., N-1]. Use --led-map when the firmware's
-RGB-matrix LED order differs.
 """
 
 from __future__ import annotations
@@ -25,17 +43,25 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import re
+import subprocess
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 
-PLACEHOLDER_RE = re.compile(r"^(?P<indent>[ \t]*)###(?P<name>[A-Za-z_][A-Za-z0-9_]*)###[ \t]*$")
+PLACEHOLDER_RE = re.compile(
+    r"^(?P<indent>[ \t]*)###(?P<name>[A-Za-z_][A-Za-z0-9_]*)###[ \t]*$"
+)
 MATRIX_RE = re.compile(r"^\s*(\d+)\s*,\s*(\d+)\s*$")
-ENCODER_META_RE = re.compile(r"^e\d+$", re.IGNORECASE)
+MARKDOWN_IMAGE_RE = re.compile(
+    r"!\[[^\]]*\]\(\s*(?:<(?P<angle>[^>]+)>|(?P<plain>[^\s)]+))"
+    r"(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^)]*\)))?\s*\)",
+    re.MULTILINE,
+)
 
 
 class GenerationError(RuntimeError):
@@ -43,34 +69,26 @@ class GenerationError(RuntimeError):
 
 
 @dataclass(frozen=True)
-class Key:
-    matrix: tuple[int, int]
-    x: float
-    y: float
-    w: float
-    h: float
-    via_label: str | None
-
-
-@dataclass(frozen=True)
-class GeneratedKey:
-    matrix: tuple[int, int]
-    led_index: int
+class Led:
+    index: int
+    matrix: tuple[int, int] | None
     name: str
     position: tuple[int, int]
+    flags: int
 
 
 @dataclass(frozen=True)
 class Context:
     name: str
-    keyboard_name: str
+    keyboard_target: str
     version: str
     vendor_id: int
     product_id: int
     publisher: str
+    image_url: str | None
     size: tuple[int, int]
-    keys: tuple[GeneratedKey, ...]
-    layout_name: str
+    center_point: tuple[int, int] | None
+    leds: tuple[Led, ...]
 
 
 Generator = Callable[[Context], str]
@@ -97,181 +115,597 @@ def parse_int(value: Any, field_name: str) -> int:
             return int(value, 0)
         except ValueError as exc:
             raise GenerationError(f"invalid {field_name}: {value!r}") from exc
-    raise GenerationError(f"invalid {field_name}: expected integer or numeric string")
+    raise GenerationError(
+        f"invalid {field_name}: expected an integer or numeric string, got {value!r}"
+    )
+
+
+def parse_number(value: Any, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise GenerationError(f"{field_name} must be a number, got {value!r}")
+    result = float(value)
+    if not math.isfinite(result):
+        raise GenerationError(f"{field_name} must be finite, got {value!r}")
+    return result
+
+
+def parse_matrix(value: Any, field_name: str) -> tuple[int, int] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list) or len(value) != 2:
+        raise GenerationError(f"{field_name} must be [row, col], got {value!r}")
+    row = parse_int(value[0], f"{field_name} row")
+    col = parse_int(value[1], f"{field_name} column")
+    if row < 0 or col < 0:
+        raise GenerationError(f"{field_name} entries must be non-negative")
+    return row, col
 
 
 def js_string(value: str) -> str:
-    # JSON string syntax is valid JavaScript string syntax and handles escaping.
+    # JSON strings are valid JavaScript strings and correctly escape content.
     return json.dumps(value, ensure_ascii=False)
+
+
+def default_template_path() -> Path:
+    """Return <generator_repo>/templates/... for a script under scripts/."""
+    return (
+        Path(__file__).resolve().parent.parent
+        / "templates"
+        / "QMK_Keyboard_SignalRGB_Plugin.js.template"
+    )
 
 
 def find_qmk_root(path: Path) -> Path | None:
     """Find the nearest ancestor that looks like a QMK repository root."""
-    resolved = path.expanduser().resolve()
-    if resolved.is_file():
-        resolved = resolved.parent
+    current = path.expanduser().resolve()
+    if current.is_file():
+        current = current.parent
 
-    for candidate in (resolved, *resolved.parents):
-        keyboards = candidate / "keyboards"
-        if not keyboards.is_dir():
+    for candidate in (current, *current.parents):
+        if not (candidate / "keyboards").is_dir():
             continue
-        # A real QMK tree normally has at least one of these. Requiring one
-        # avoids treating an arbitrary directory named `keyboards` as QMK.
-        if any((candidate / marker).exists() for marker in ("quantum", "builddefs", "platforms", ".git")):
+        if any(
+            (candidate / marker).exists()
+            for marker in ("quantum", "builddefs", "platforms", "lib/python/qmk", ".git")
+        ):
             return candidate
     return None
 
 
-def normalize_keyboard_target(value: str) -> str:
+def keyboard_target_from_directory(path: Path, qmk_root: Path) -> str | None:
+    """Return the deepest buildable keyboard ancestor containing keyboard.json."""
+    keyboards_root = (qmk_root / "keyboards").resolve()
+    current = path.expanduser().resolve()
+    if current.is_file():
+        current = current.parent
+
+    try:
+        current.relative_to(keyboards_root)
+    except ValueError:
+        return None
+
+    while current != keyboards_root:
+        if (current / "keyboard.json").is_file():
+            return current.relative_to(keyboards_root).as_posix()
+        current = current.parent
+    return None
+
+
+def normalize_keyboard_target(value: str, qmk_root: Path | None) -> str:
+    """Normalize either a QMK target name or a path to/inside its directory."""
+    candidate = Path(value).expanduser()
+    if candidate.exists():
+        if qmk_root is None:
+            qmk_root = find_qmk_root(candidate)
+        if qmk_root is None:
+            raise GenerationError(f"cannot locate a QMK repository for path {candidate}")
+        target = keyboard_target_from_directory(candidate, qmk_root)
+        if target is None:
+            raise GenerationError(
+                f"path is not inside a buildable QMK keyboard target: {candidate}"
+            )
+        return target
+
     raw = value.strip().replace("\\", "/").strip("/")
     if raw.startswith("keyboards/"):
         raw = raw[len("keyboards/") :]
+
     parts = [part for part in raw.split("/") if part and part != "."]
-    for stop in ("keymaps", "via_json"):
-        if stop in parts:
-            parts = parts[: parts.index(stop)]
+    if "keymaps" in parts:
+        parts = parts[: parts.index("keymaps")]
     if not parts or any(part == ".." for part in parts):
         raise GenerationError(f"invalid QMK keyboard target: {value!r}")
     return "/".join(parts)
 
 
-def infer_keyboard_target(path: Path, qmk_root: Path) -> str | None:
-    """Infer `vendor/board[/revision]` from a path inside keyboards/."""
-    resolved = path.expanduser().resolve()
+def resolve_qmk_invocation(args: argparse.Namespace) -> tuple[Path, str | None]:
+    """Choose the working directory and optional explicit keyboard target.
+
+    The QMK CLI remains responsible for resolving a keyboard when --keyboard is
+    omitted. This allows user.keyboard from QMK's config, QMK's configured home,
+    and its directory-aware behavior to work normally.
+    """
+    explicit_root = args.qmk_root.expanduser().resolve() if args.qmk_root else None
+    if explicit_root is not None and not explicit_root.is_dir():
+        raise GenerationError(f"QMK repository root is not a directory: {explicit_root}")
+
+    target: str | None = None
+    root = explicit_root
+
+    if args.keyboard:
+        keyboard_path = Path(args.keyboard).expanduser()
+        if keyboard_path.exists():
+            if root is None:
+                root = find_qmk_root(keyboard_path)
+            if root is None:
+                raise GenerationError(
+                    f"cannot locate a QMK repository for keyboard path {keyboard_path}"
+                )
+            target = normalize_keyboard_target(args.keyboard, root)
+        else:
+            target = normalize_keyboard_target(args.keyboard, root)
+
+    # Without --qmk-root, preserve the caller's cwd. QMK can then use either its
+    # configured home/default keyboard or its normal directory-aware inference.
+    return root or Path.cwd(), target
+
+
+def extract_json_object(text: str) -> Mapping[str, Any]:
+    """Parse JSON, tolerating incidental non-JSON text around one object."""
+    stripped = text.strip()
+    if not stripped:
+        raise GenerationError("qmk info produced no JSON output")
+
     try:
-        relative = resolved.relative_to((qmk_root / "keyboards").resolve())
+        result = json.loads(stripped)
+        if isinstance(result, Mapping):
+            return result
+        raise GenerationError("qmk info JSON did not contain a top-level object")
+    except json.JSONDecodeError:
+        pass
+
+    decoder = json.JSONDecoder()
+    candidates: list[Mapping[str, Any]] = []
+    for index, character in enumerate(text):
+        if character != "{":
+            continue
+        try:
+            value, _end = decoder.raw_decode(text, index)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, Mapping):
+            candidates.append(value)
+
+    if not candidates:
+        preview = stripped[:500]
+        raise GenerationError(
+            "could not parse JSON from qmk info output; output began with:\n" + preview
+        )
+
+    for candidate in reversed(candidates):
+        if "rgb_matrix" in candidate or "keyboards" in candidate:
+            return candidate
+    return candidates[-1]
+
+
+def unwrap_qmk_info(
+    data: Mapping[str, Any],
+    keyboard_target: str | None,
+) -> tuple[Mapping[str, Any], str | None]:
+    """Return one resolved keyboard object and its best-known QMK target."""
+    keyboards = data.get("keyboards")
+    if isinstance(keyboards, Mapping):
+        if keyboard_target is not None:
+            exact = keyboards.get(keyboard_target)
+            if isinstance(exact, Mapping):
+                return exact, keyboard_target
+        if len(keyboards) == 1:
+            resolved_target, only = next(iter(keyboards.items()))
+            if isinstance(only, Mapping):
+                return only, str(resolved_target)
+        available = ", ".join(str(name) for name in keyboards)
+        requested = f" keyboard {keyboard_target!r}" if keyboard_target else " a single keyboard"
+        raise GenerationError(
+            f"qmk info JSON did not contain{requested}; available: {available}"
+        )
+
+    resolved_target = keyboard_target
+    folder = data.get("keyboard_folder")
+    if isinstance(folder, str) and folder.strip():
+        resolved_target = folder.strip().replace("\\", "/").strip("/")
+
+    return data, resolved_target
+
+
+def load_resolved_qmk_info(
+    qmk_cwd: Path,
+    keyboard_target: str | None,
+    qmk_command: str,
+) -> tuple[Mapping[str, Any], str | None]:
+    """Ask QMK for its fully resolved target configuration.
+
+    When keyboard_target is None, no -kb option is passed. QMK may then resolve
+    the keyboard from user.keyboard, its configured QMK home, or current-directory
+    context. --api preserves keyboard_folder in the JSON so output naming can use
+    the resolved target.
+    """
+    command = [qmk_command, "info"]
+    if keyboard_target is not None:
+        command.extend(["-kb", keyboard_target])
+    command.extend(["-f", "json", "--api"])
+
+    env = os.environ.copy()
+    env.setdefault("NO_COLOR", "1")
+    env.setdefault("CLICOLOR", "0")
+
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=qmk_cwd,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise GenerationError(
+            f"QMK CLI executable not found: {qmk_command!r}; pass --qmk-command if needed"
+        ) from exc
+
+    if completed.returncode != 0:
+        details = (completed.stderr or completed.stdout).strip()
+        rendered = " ".join(command)
+        raise GenerationError(
+            f"{rendered} failed with exit status {completed.returncode}"
+            + (f":\n{details}" if details else "")
+        )
+
+    return unwrap_qmk_info(extract_json_object(completed.stdout), keyboard_target)
+
+
+def query_qmk_firmware_root(qmk_cwd: Path, qmk_command: str) -> Path | None:
+    """Ask QMK for its resolved firmware checkout via QMK_FIRMWARE."""
+    command = [qmk_command, "env", "QMK_FIRMWARE"]
+    env = os.environ.copy()
+    env.setdefault("NO_COLOR", "1")
+    env.setdefault("CLICOLOR", "0")
+
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=qmk_cwd,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return None
+
+    if completed.returncode != 0:
+        return None
+
+    # `qmk env QMK_FIRMWARE` normally prints exactly one path. Taking the last
+    # non-empty line also tolerates incidental CLI chatter from older setups.
+    lines = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+    if not lines:
+        return None
+
+    candidate = Path(lines[-1].strip('"').strip("'")).expanduser().resolve()
+    return candidate if candidate.is_dir() else None
+
+
+def resolve_qmk_root_for_readme(
+    args: argparse.Namespace,
+    qmk_cwd: Path,
+) -> Path | None:
+    """Resolve the checkout used to turn keyboard_folder into a real path."""
+    if args.qmk_root is not None:
+        return args.qmk_root.expanduser().resolve()
+    return query_qmk_firmware_root(qmk_cwd, args.qmk_command)
+
+
+def find_keyboard_readme(qmk_root: Path, keyboard_target: str) -> Path | None:
+    """Find the nearest README from the concrete target up to keyboards/."""
+    keyboards_root = (qmk_root / "keyboards").resolve()
+    current = (keyboards_root / keyboard_target).resolve()
+
+    try:
+        current.relative_to(keyboards_root)
     except ValueError:
         return None
 
-    parts = list(relative.parts)
-    if not parts:
-        return None
-
-    if resolved.is_file():
-        parts = parts[:-1]
-
-    for stop in ("keymaps", "via_json"):
-        if stop in parts:
-            parts = parts[: parts.index(stop)]
+    while True:
+        for filename in ("readme.md", "README.md"):
+            candidate = current / filename
+            if candidate.is_file():
+                return candidate
+        if current == keyboards_root:
             break
-
-    # For a cwd somewhere below a keyboard, choose the closest ancestor that
-    # owns info.json. This also handles revisions with their own info.json.
-    if resolved.is_dir() and "keymaps" not in relative.parts and "via_json" not in relative.parts:
-        cursor = resolved
-        keyboard_root = (qmk_root / "keyboards").resolve()
-        while cursor != keyboard_root and keyboard_root in cursor.parents:
-            if (cursor / "info.json").is_file():
-                return cursor.relative_to(keyboard_root).as_posix()
-            cursor = cursor.parent
-
-    return "/".join(parts) if parts else None
+        current = current.parent
+    return None
 
 
-def discover_via_json(
-    keyboard_dir: Path,
-    *,
-    requested_layout: str | None,
-) -> Path:
-    via_dir = keyboard_dir / "via_json"
-    candidates = sorted(via_dir.glob("*.json")) if via_dir.is_dir() else []
-    if not candidates:
-        raise GenerationError(
-            f"no VIA JSON found under {via_dir}; pass --via explicitly"
-        )
-    if len(candidates) == 1:
-        return candidates[0]
-
-    if requested_layout:
-        lowered = requested_layout.lower()
-        flavors = [token for token in ("ansi", "iso", "jis") if token in lowered]
-        if flavors:
-            matches = [
-                path for path in candidates
-                if all(token in path.stem.lower() for token in flavors)
-            ]
-            if len(matches) == 1:
-                return matches[0]
-
-    rendered = "\n  ".join(str(path) for path in candidates)
-    raise GenerationError(
-        "multiple VIA JSON files match this keyboard; pass --via explicitly:\n  " + rendered
-    )
+def first_markdown_image_url(markdown: str) -> str | None:
+    """Return the URL from the first inline Markdown image."""
+    match = MARKDOWN_IMAGE_RE.search(markdown)
+    if match is None:
+        return None
+    value = match.group("angle") or match.group("plain")
+    return value.strip() if value and value.strip() else None
 
 
-def resolve_inputs(args: argparse.Namespace) -> tuple[Path, Path, str | None, Path | None]:
-    """Resolve info/VIA files and the QMK keyboard target from CLI context."""
-    explicit_info = args.info.expanduser().resolve() if args.info else None
-    explicit_via = args.via.expanduser().resolve() if args.via else None
-    explicit_root = args.qmk_root.expanduser().resolve() if args.qmk_root else None
+def resolve_image_url(
+    args: argparse.Namespace,
+    qmk_cwd: Path,
+    keyboard_target: str,
+) -> tuple[str | None, str]:
+    """Resolve ImageUrl from CLI override or the nearest keyboard README.
 
-    root_candidates = [path for path in (explicit_info, explicit_via, Path.cwd()) if path is not None]
-    qmk_root = explicit_root
+    Failure is intentionally non-fatal. The caller emits an empty ImageUrl()
+    function and reports the returned reason as a warning.
+    """
+    if args.image_url is not None:
+        value = args.image_url.strip()
+        if value:
+            return value, "command line"
+        return None, "--image-url was empty"
+
+    qmk_root = resolve_qmk_root_for_readme(args, qmk_cwd)
     if qmk_root is None:
-        roots = [root for path in root_candidates if (root := find_qmk_root(path)) is not None]
-        if roots:
-            qmk_root = roots[0]
-            if any(root != qmk_root for root in roots[1:]):
-                raise GenerationError("input paths appear to belong to different QMK repositories")
+        return None, "could not locate the QMK repository for README image discovery"
 
-    target_candidates: list[tuple[str, str]] = []
-    if args.keyboard:
-        target_candidates.append(("--keyboard", normalize_keyboard_target(args.keyboard)))
-    if qmk_root is not None:
-        for label, path in (("--info", explicit_info), ("--via", explicit_via), ("cwd", Path.cwd())):
-            if path is None:
+    readme = find_keyboard_readme(qmk_root, keyboard_target)
+    if readme is None:
+        return None, f"no keyboard readme.md found for {keyboard_target!r}"
+
+    try:
+        image_url = first_markdown_image_url(readme.read_text(encoding="utf-8"))
+    except OSError as exc:
+        return None, f"could not read {readme}: {exc}"
+
+    if image_url is None:
+        return None, f"no Markdown image found in {readme}"
+    return image_url, str(readme)
+
+
+def template_generator_names(template: str) -> set[str]:
+    """Return whole-line generator placeholders used by a template."""
+    names: set[str] = set()
+    for line in template.splitlines():
+        match = PLACEHOLDER_RE.fullmatch(line)
+        if match is not None:
+            names.add(match.group("name"))
+    return names
+
+
+def collect_unique_layout_labels(info: Mapping[str, Any]) -> dict[tuple[int, int], str]:
+    """Collect unambiguous optional key labels from QMK layout metadata."""
+    layouts = info.get("layouts")
+    if not isinstance(layouts, Mapping):
+        return {}
+
+    candidates: dict[tuple[int, int], set[str]] = defaultdict(set)
+    for layout_obj in layouts.values():
+        if not isinstance(layout_obj, Mapping):
+            continue
+        entries = layout_obj.get("layout")
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, Mapping):
                 continue
-            target = infer_keyboard_target(path, qmk_root)
-            if target:
-                target_candidates.append((label, target))
+            matrix = parse_matrix(entry.get("matrix"), "layout matrix")
+            label = entry.get("label")
+            if matrix is not None and isinstance(label, str) and label.strip():
+                candidates[matrix].add(label.strip())
 
-    keyboard_target = target_candidates[0][1] if target_candidates else None
-    disagreements = [(label, target) for label, target in target_candidates if target != keyboard_target]
-    if disagreements:
-        details = ", ".join(f"{label}={target}" for label, target in target_candidates)
-        raise GenerationError(f"conflicting inferred QMK keyboard targets: {details}")
+    return {
+        matrix: next(iter(labels))
+        for matrix, labels in candidates.items()
+        if len(labels) == 1
+    }
 
-    if (explicit_info is None or explicit_via is None) and (qmk_root is None or keyboard_target is None):
+
+def load_name_overrides(
+    path: Path | None,
+) -> tuple[dict[int, str], dict[tuple[int, int], str]]:
+    """Read names keyed by LED index ('12') or matrix address ('2,4')."""
+    if path is None:
+        return {}, {}
+
+    data = json.loads(path.expanduser().read_text(encoding="utf-8"))
+    if not isinstance(data, Mapping):
         raise GenerationError(
-            "cannot infer missing input paths; pass --info and --via, or run inside a QMK "
-            "repository and provide --keyboard (or a path under keyboards/)"
+            "--names-json must contain an object keyed by LED index or 'row,col'"
         )
 
-    keyboard_dir = qmk_root / "keyboards" / keyboard_target if qmk_root and keyboard_target else None
-    info = explicit_info or (keyboard_dir / "info.json" if keyboard_dir else None)
-    if info is None or not info.is_file():
-        raise GenerationError(f"QMK info.json not found: {info}")
+    by_index: dict[int, str] = {}
+    by_matrix: dict[tuple[int, int], str] = {}
+    for raw_key, raw_name in data.items():
+        if not isinstance(raw_name, str):
+            raise GenerationError(f"invalid LED name for {raw_key!r}: {raw_name!r}")
+        key = str(raw_key).strip()
+        matrix_match = MATRIX_RE.fullmatch(key)
+        if matrix_match:
+            by_matrix[(int(matrix_match.group(1)), int(matrix_match.group(2)))] = raw_name
+            continue
+        try:
+            index = int(key, 10)
+        except ValueError as exc:
+            raise GenerationError(
+                f"invalid --names-json key {raw_key!r}; expected LED index or 'row,col'"
+            ) from exc
+        if index < 0:
+            raise GenerationError("LED name indices must be non-negative")
+        by_index[index] = raw_name
 
-    via = explicit_via or discover_via_json(keyboard_dir, requested_layout=args.layout)  # type: ignore[arg-type]
-    if not via.is_file():
-        raise GenerationError(f"VIA JSON not found: {via}")
-
-    return info, via, keyboard_target, qmk_root
+    return by_index, by_matrix
 
 
-def filename_token(value: str) -> str:
-    token = re.sub(r"[^A-Za-z0-9]+", "_", value).strip("_")
-    return token or "QMK_Keyboard"
+def quantize(value: float, mode: str) -> int:
+    epsilon = 1e-9
+    if mode == "floor":
+        return math.floor(value + epsilon)
+    if mode == "ceil":
+        return math.ceil(value - epsilon)
+    if mode == "round":
+        # Avoid Python's bankers rounding; .5 rounds away from zero.
+        return math.floor(value + 0.5) if value >= 0 else math.ceil(value - 0.5)
+    raise GenerationError(f"unsupported quantization mode: {mode}")
 
 
-def infer_output_path(context: Context) -> Path:
-    flavor = next(
-        (token.upper() for token in ("ansi", "iso", "jis") if token in context.layout_name.lower()),
-        None,
+def parse_center_point(rgb_matrix: Mapping[str, Any]) -> tuple[int, int] | None:
+    raw = rgb_matrix.get("center_point")
+    if raw is None:
+        return None
+    if not isinstance(raw, list) or len(raw) != 2:
+        raise GenerationError(f"rgb_matrix.center_point must be [x, y], got {raw!r}")
+    return (
+        quantize(parse_number(raw[0], "rgb_matrix.center_point x"), "round"),
+        quantize(parse_number(raw[1], "rgb_matrix.center_point y"), "round"),
     )
-    pieces = [filename_token(context.keyboard_name), "QMK"]
-    if flavor:
-        pieces.append(flavor)
-    pieces.append("Keyboard")
-    return Path.cwd() / ("_".join(pieces) + ".js")
 
 
-def format_number(value: float) -> str:
-    if not math.isfinite(value):
-        raise GenerationError(f"non-finite coordinate: {value!r}")
-    if value.is_integer():
-        return str(int(value))
-    return format(value, ".12g")
+def parse_rgb_matrix_layout(
+    info: Mapping[str, Any],
+) -> tuple[Mapping[str, Any], list[Mapping[str, Any]]]:
+    rgb_matrix = info.get("rgb_matrix")
+    if not isinstance(rgb_matrix, Mapping):
+        raise GenerationError(
+            "qmk info contains no rgb_matrix object; the selected target may not use RGB Matrix"
+        )
+
+    layout = rgb_matrix.get("layout")
+    if not isinstance(layout, list) or not layout:
+        raise GenerationError(
+            "qmk info contains no non-empty rgb_matrix.layout; verify that QMK can "
+            "extract the target's g_led_config"
+        )
+
+    normalized: list[Mapping[str, Any]] = []
+    for index, entry in enumerate(layout):
+        if not isinstance(entry, Mapping):
+            raise GenerationError(
+                f"rgb_matrix.layout[{index}] must be an object, got {entry!r}"
+            )
+        normalized.append(entry)
+    return rgb_matrix, normalized
+
+
+def build_context(
+    args: argparse.Namespace,
+    info: Mapping[str, Any],
+    target: str,
+    image_url: str | None,
+) -> Context:
+    if args.position_scale <= 0 or not math.isfinite(args.position_scale):
+        raise GenerationError("--position-scale must be a positive finite number")
+
+    rgb_matrix, raw_leds = parse_rgb_matrix_layout(info)
+
+    raw_positions: list[tuple[float, float]] = []
+    for index, entry in enumerate(raw_leds):
+        if "x" not in entry or "y" not in entry:
+            raise GenerationError(
+                f"rgb_matrix.layout[{index}] is missing x or y: {entry!r}"
+            )
+        raw_positions.append(
+            (
+                parse_number(entry["x"], f"rgb_matrix.layout[{index}].x"),
+                parse_number(entry["y"], f"rgb_matrix.layout[{index}].y"),
+            )
+        )
+
+    min_x = min(position[0] for position in raw_positions) if args.normalize_positions else 0.0
+    min_y = min(position[1] for position in raw_positions) if args.normalize_positions else 0.0
+
+    labels = collect_unique_layout_labels(info)
+    names_by_index, names_by_matrix = load_name_overrides(args.names_json)
+
+    leds: list[Led] = []
+    for index, (entry, raw_position) in enumerate(zip(raw_leds, raw_positions, strict=True)):
+        matrix = parse_matrix(
+            entry.get("matrix"), f"rgb_matrix.layout[{index}].matrix"
+        )
+        flags = parse_int(entry.get("flags", 0), f"rgb_matrix.layout[{index}].flags")
+        if flags < 0 or flags > 0xFF:
+            raise GenerationError(
+                f"rgb_matrix.layout[{index}].flags must fit in one byte, got {flags}"
+            )
+
+        position = (
+            quantize((raw_position[0] - min_x) * args.position_scale, args.quantize),
+            quantize((raw_position[1] - min_y) * args.position_scale, args.quantize),
+        )
+        if position[0] < 0 or position[1] < 0:
+            raise GenerationError(
+                f"LED {index} produced a negative SignalRGB position {position}"
+            )
+
+        name = names_by_index.get(index)
+        if name is None and matrix is not None:
+            name = names_by_matrix.get(matrix) or labels.get(matrix)
+        if name is None:
+            name = f"Key {matrix[0]},{matrix[1]}" if matrix is not None else f"LED {index}"
+
+        leds.append(
+            Led(
+                index=index,
+                matrix=matrix,
+                name=name,
+                position=position,
+                flags=flags,
+            )
+        )
+
+    position_members: dict[tuple[int, int], list[int]] = defaultdict(list)
+    for led in leds:
+        position_members[led.position].append(led.index)
+    collisions = {
+        position: indices
+        for position, indices in position_members.items()
+        if len(indices) > 1
+    }
+    if collisions:
+        rendered = "; ".join(
+            f"{position}: {indices}" for position, indices in sorted(collisions.items())
+        )
+        print(
+            "warning: multiple QMK LEDs map to the same SignalRGB coordinate: "
+            + rendered,
+            file=sys.stderr,
+        )
+
+    usb = info.get("usb")
+    if not isinstance(usb, Mapping):
+        raise GenerationError("resolved QMK metadata has no usb object")
+
+    vendor_value = args.vendor_id if args.vendor_id is not None else usb.get("vid")
+    product_value = args.product_id if args.product_id is not None else usb.get("pid")
+    if vendor_value is None:
+        raise GenerationError("USB vendor ID is absent; pass --vendor-id")
+    if product_value is None:
+        raise GenerationError("USB product ID is absent; pass --product-id")
+
+    name = args.name or str(info.get("keyboard_name") or target)
+    size = (
+        max(led.position[0] for led in leds) + 1,
+        max(led.position[1] for led in leds) + 1,
+    )
+
+    return Context(
+        name=name,
+        keyboard_target=target,
+        version=args.version,
+        vendor_id=parse_int(vendor_value, "USB vendor ID"),
+        product_id=parse_int(product_value, "USB product ID"),
+        publisher=args.publisher,
+        image_url=image_url,
+        size=size,
+        center_point=parse_center_point(rgb_matrix),
+        leds=tuple(leds),
+    )
 
 
 def format_const_array(
@@ -289,357 +723,6 @@ def format_const_array(
         lines.append(f"\t{rendered}{comma}")
     lines.append("];\n")
     return "\n".join(lines).rstrip()
-
-
-def extract_via_matrix_and_labels(via: Mapping[str, Any]) -> tuple[set[tuple[int, int]], dict[tuple[int, int], str]]:
-    try:
-        rows = via["layouts"]["keymap"]
-    except (KeyError, TypeError) as exc:
-        raise GenerationError("VIA JSON is missing layouts.keymap") from exc
-
-    if not isinstance(rows, list):
-        raise GenerationError("VIA layouts.keymap must be an array")
-
-    matrices: set[tuple[int, int]] = set()
-    labels: dict[tuple[int, int], str] = {}
-
-    for row in rows:
-        if not isinstance(row, list):
-            raise GenerationError("each VIA keymap row must be an array")
-        for item in row:
-            if not isinstance(item, str):
-                continue
-
-            fields = item.split("\n")
-            match = MATRIX_RE.fullmatch(fields[0])
-            if match is None:
-                continue
-
-            matrix = (int(match.group(1)), int(match.group(2)))
-            matrices.add(matrix)
-
-            # VIA uses later legend slots for labels and metadata. Keep the
-            # first useful human label, but ignore encoder metadata such as e0.
-            for field in fields[1:]:
-                candidate = field.strip()
-                if not candidate or ENCODER_META_RE.fullmatch(candidate):
-                    continue
-                if MATRIX_RE.fullmatch(candidate):
-                    continue
-                labels.setdefault(matrix, candidate)
-                break
-
-    if not matrices:
-        raise GenerationError("no matrix labels such as '0,0' were found in VIA layouts.keymap")
-
-    return matrices, labels
-
-
-def info_layout_matrices(layout_obj: Mapping[str, Any]) -> set[tuple[int, int]]:
-    entries = layout_obj.get("layout")
-    if not isinstance(entries, list):
-        return set()
-
-    result: set[tuple[int, int]] = set()
-    for entry in entries:
-        if not isinstance(entry, Mapping):
-            continue
-        matrix = entry.get("matrix")
-        if isinstance(matrix, list) and len(matrix) == 2:
-            result.add((int(matrix[0]), int(matrix[1])))
-    return result
-
-
-def choose_layout(
-    info: Mapping[str, Any],
-    requested_name: str | None,
-    via_matrices: set[tuple[int, int]],
-    via_name: str,
-) -> tuple[str, Mapping[str, Any]]:
-    layouts = info.get("layouts")
-    if not isinstance(layouts, Mapping) or not layouts:
-        raise GenerationError("QMK info.json contains no layouts")
-
-    if requested_name is not None:
-        selected = layouts.get(requested_name)
-        if not isinstance(selected, Mapping):
-            available = ", ".join(sorted(str(name) for name in layouts))
-            raise GenerationError(f"unknown layout {requested_name!r}; available layouts: {available}")
-        return requested_name, selected
-
-    via_name_lower = via_name.lower()
-    scored: list[tuple[tuple[int, int, int, int, int], str, Mapping[str, Any]]] = []
-    for name, layout_obj in layouts.items():
-        if not isinstance(layout_obj, Mapping):
-            continue
-        matrices = info_layout_matrices(layout_obj)
-        layout_name_lower = str(name).lower()
-        overlap = len(matrices & via_matrices)
-        missing_from_info = len(via_matrices - matrices)
-        extra_in_info = len(matrices - via_matrices)
-        exact_count = int(len(matrices) == len(via_matrices))
-        # ANSI/ISO/JIS in a layout name is a useful discriminator when one
-        # layout is a matrix superset of another.
-        flavor_match = int(
-            any(
-                token in via_name_lower and token in layout_name_lower
-                for token in ("ansi", "iso", "jis")
-            )
-        )
-        score = (flavor_match, exact_count, overlap, -missing_from_info, -extra_in_info)
-        scored.append((score, str(name), layout_obj))
-
-    if not scored:
-        raise GenerationError("QMK info.json has no usable layout entries")
-
-    scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    best_score, best_name, best_layout = scored[0]
-
-    tied = [item for item in scored if item[0] == best_score]
-    if len(tied) > 1:
-        names = ", ".join(sorted(item[1] for item in tied))
-        raise GenerationError(
-            "could not uniquely infer the QMK layout from the VIA matrix; "
-            f"equally good matches: {names}. Pass --layout explicitly."
-        )
-
-    return best_name, best_layout
-
-
-def parse_keys(
-    layout_obj: Mapping[str, Any],
-    via_labels: Mapping[tuple[int, int], str],
-) -> list[Key]:
-    entries = layout_obj.get("layout")
-    if not isinstance(entries, list):
-        raise GenerationError("selected QMK layout has no layout array")
-
-    keys: list[Key] = []
-    seen: set[tuple[int, int]] = set()
-
-    for index, entry in enumerate(entries):
-        if not isinstance(entry, Mapping):
-            raise GenerationError(f"layout entry {index} is not an object")
-
-        matrix = entry.get("matrix")
-        if not isinstance(matrix, list) or len(matrix) != 2:
-            raise GenerationError(f"layout entry {index} has no valid matrix [row, col]")
-        matrix_tuple = (int(matrix[0]), int(matrix[1]))
-        if matrix_tuple in seen:
-            raise GenerationError(
-                f"selected layout contains duplicate matrix position {matrix_tuple}; "
-                "select a different layout or fix info.json"
-            )
-        seen.add(matrix_tuple)
-
-        try:
-            x = float(entry.get("x", 0.0))
-            y = float(entry.get("y", 0.0))
-            w = float(entry.get("w", 1.0))
-            h = float(entry.get("h", 1.0))
-        except (TypeError, ValueError) as exc:
-            raise GenerationError(f"layout entry {index} has invalid geometry") from exc
-
-        if w <= 0 or h <= 0:
-            raise GenerationError(f"layout entry {index} has non-positive width or height")
-
-        keys.append(Key(matrix_tuple, x, y, w, h, via_labels.get(matrix_tuple)))
-
-    if not keys:
-        raise GenerationError("selected layout contains no keys")
-
-    return keys
-
-
-def load_matrix_name_map(path: Path | None) -> dict[tuple[int, int], str]:
-    if path is None:
-        return {}
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, Mapping):
-        raise GenerationError("--names-json must contain an object mapping 'row,col' to a name")
-
-    result: dict[tuple[int, int], str] = {}
-    for raw_matrix, raw_name in data.items():
-        match = MATRIX_RE.fullmatch(str(raw_matrix))
-        if match is None or not isinstance(raw_name, str):
-            raise GenerationError(f"invalid name mapping: {raw_matrix!r}: {raw_name!r}")
-        result[(int(match.group(1)), int(match.group(2)))] = raw_name
-    return result
-
-
-def load_led_indices(path: Path | None, keys: Sequence[Key], led_offset: int) -> list[int]:
-    if path is None:
-        return [led_offset + index for index in range(len(keys))]
-
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if isinstance(data, list):
-        indices = [parse_int(value, "LED index") for value in data]
-        if len(indices) != len(keys):
-            raise GenerationError(
-                f"--led-map array has {len(indices)} entries, but the selected layout has {len(keys)} keys"
-            )
-        return indices
-
-    if isinstance(data, Mapping):
-        result: list[int] = []
-        for key in keys:
-            matrix_name = f"{key.matrix[0]},{key.matrix[1]}"
-            if matrix_name not in data:
-                raise GenerationError(f"--led-map is missing matrix {matrix_name!r}")
-            result.append(parse_int(data[matrix_name], f"LED index for {matrix_name}"))
-        return result
-
-    raise GenerationError("--led-map must be either an array or an object keyed by 'row,col'")
-
-
-def quantize(value: float, mode: str) -> int:
-    # A tiny epsilon prevents floating-point representations such as
-    # 2.9999999999999996 from falling into the previous cell with floor().
-    epsilon = 1e-9
-    if mode == "floor":
-        return math.floor(value + epsilon)
-    if mode == "ceil":
-        return math.ceil(value - epsilon)
-    if mode == "round":
-        # Avoid Python's bankers-rounding; .5 always rounds away from zero.
-        return math.floor(value + 0.5) if value >= 0 else math.ceil(value - 0.5)
-    raise GenerationError(f"unsupported quantization mode: {mode}")
-
-
-def make_positions(
-    keys: Sequence[Key],
-    *,
-    origin: str,
-    scale: float,
-    quantization: str,
-) -> list[tuple[int, int]]:
-    if scale <= 0 or not math.isfinite(scale):
-        raise GenerationError("--position-scale must be a positive finite number")
-
-    raw: list[tuple[float, float]] = []
-    for key in keys:
-        if origin == "top-left":
-            raw.append((key.x, key.y))
-        elif origin == "center":
-            raw.append((key.x + key.w / 2.0, key.y + key.h / 2.0))
-        else:
-            raise GenerationError(f"unsupported position origin: {origin}")
-
-    min_x = min(point[0] for point in raw)
-    min_y = min(point[1] for point in raw)
-
-    return [
-        (
-            quantize((x - min_x) * scale, quantization),
-            quantize((y - min_y) * scale, quantization),
-        )
-        for x, y in raw
-    ]
-
-
-def warn_position_collisions(keys: Sequence[Key], positions: Sequence[tuple[int, int]]) -> None:
-    at_position: dict[tuple[int, int], list[tuple[int, int]]] = defaultdict(list)
-    for key, position in zip(keys, positions, strict=True):
-        at_position[position].append(key.matrix)
-
-    collisions = {position: matrices for position, matrices in at_position.items() if len(matrices) > 1}
-    if not collisions:
-        return
-
-    rendered = "; ".join(
-        f"{position}: {', '.join(f'{row},{col}' for row, col in matrices)}"
-        for position, matrices in sorted(collisions.items())
-    )
-    print(
-        "warning: multiple LEDs quantized to the same SignalRGB coordinate: " + rendered,
-        file=sys.stderr,
-    )
-
-
-def build_context(args: argparse.Namespace) -> Context:
-    info = json.loads(args.info.read_text(encoding="utf-8"))
-    via = json.loads(args.via.read_text(encoding="utf-8"))
-    if not isinstance(info, Mapping) or not isinstance(via, Mapping):
-        raise GenerationError("both input JSON files must contain top-level objects")
-
-    via_matrices, via_labels = extract_via_matrix_and_labels(via)
-    layout_name, layout_obj = choose_layout(
-        info, args.layout, via_matrices, str(via.get("name", ""))
-    )
-    keys = parse_keys(layout_obj, via_labels)
-
-    info_matrices = {key.matrix for key in keys}
-    missing_from_info = sorted(via_matrices - info_matrices)
-    missing_from_via = sorted(info_matrices - via_matrices)
-    if missing_from_info:
-        print(
-            "warning: VIA contains matrices absent from selected QMK layout: "
-            + ", ".join(f"{row},{col}" for row, col in missing_from_info),
-            file=sys.stderr,
-        )
-    if missing_from_via:
-        print(
-            "warning: selected QMK layout contains matrices absent from VIA: "
-            + ", ".join(f"{row},{col}" for row, col in missing_from_via),
-            file=sys.stderr,
-        )
-
-    name_overrides = load_matrix_name_map(args.names_json)
-    led_indices = load_led_indices(args.led_map, keys, args.led_offset)
-    positions = make_positions(
-        keys,
-        origin=args.position_origin,
-        scale=args.position_scale,
-        quantization=args.quantize,
-    )
-    warn_position_collisions(keys, positions)
-
-    generated_keys = tuple(
-        GeneratedKey(
-            matrix=key.matrix,
-            led_index=led_index,
-            name=name_overrides.get(key.matrix)
-            or key.via_label
-            or f"Key {key.matrix[0]},{key.matrix[1]}",
-            position=position,
-        )
-        for key, led_index, position in zip(keys, led_indices, positions, strict=True)
-    )
-
-    if len({key.led_index for key in generated_keys}) != len(generated_keys):
-        raise GenerationError("vKeys LED indices are not unique")
-    if min(key.led_index for key in generated_keys) < 0:
-        raise GenerationError("vKeys LED indices must be non-negative")
-
-    size = (
-        max(key.position[0] for key in generated_keys) + 1,
-        max(key.position[1] for key in generated_keys) + 1,
-    )
-
-    usb = info.get("usb") if isinstance(info.get("usb"), Mapping) else {}
-    name = args.name or str(via.get("name") or info.get("keyboard_name") or layout_name)
-    vendor_id = parse_int(
-        args.vendor_id if args.vendor_id is not None else via.get("vendorId", usb.get("vid")),
-        "vendor ID",
-    )
-    product_value = args.product_id if args.product_id is not None else via.get("productId", usb.get("pid"))
-    if product_value is None:
-        raise GenerationError("product ID not found; pass --product-id")
-    product_id = parse_int(product_value, "product ID")
-
-    keyboard_name = str(info.get("keyboard_name") or name)
-
-    return Context(
-        name=name,
-        keyboard_name=keyboard_name,
-        version=args.version,
-        vendor_id=vendor_id,
-        product_id=product_id,
-        publisher=args.publisher,
-        size=size,
-        keys=generated_keys,
-        layout_name=layout_name,
-    )
 
 
 @generator("name")
@@ -667,6 +750,13 @@ def generate_publisher(context: Context) -> str:
     return f"export function Publisher() {{ return {js_string(context.publisher)}; }}"
 
 
+@generator("imageUrl")
+def generate_image_url(context: Context) -> str:
+    if context.image_url is None:
+        return "export function ImageUrl() {}"
+    return f"export function ImageUrl() {{ return {js_string(context.image_url)}; }}"
+
+
 @generator("size")
 def generate_size(context: Context) -> str:
     return f"export function Size() {{ return [{context.size[0]}, {context.size[1]}]; }}"
@@ -676,7 +766,7 @@ def generate_size(context: Context) -> str:
 def generate_vkeys(context: Context) -> str:
     return format_const_array(
         "vKeys",
-        [key.led_index for key in context.keys],
+        [led.index for led in context.leds],
         lambda value: str(value),
         per_line=16,
     )
@@ -686,7 +776,7 @@ def generate_vkeys(context: Context) -> str:
 def generate_vkey_names(context: Context) -> str:
     return format_const_array(
         "vKeyNames",
-        [key.name for key in context.keys],
+        [led.name for led in context.leds],
         js_string,
         per_line=8,
     )
@@ -696,7 +786,7 @@ def generate_vkey_names(context: Context) -> str:
 def generate_vkey_positions(context: Context) -> str:
     return format_const_array(
         "vKeyPositions",
-        [key.position for key in context.keys],
+        [led.position for led in context.leds],
         lambda position: f"[{position[0]}, {position[1]}]",
         per_line=8,
     )
@@ -723,7 +813,8 @@ def render_template(template: str, context: Context) -> tuple[str, set[str]]:
         if fn is None:
             known = ", ".join(sorted(GENERATORS))
             raise GenerationError(
-                f"unknown template generator {name!r} on line {line_number}; known generators: {known}"
+                f"unknown template generator {name!r} on line {line_number}; "
+                f"known generators: {known}"
             )
         used.add(name)
         output.append(indent_generated(fn(context), match.group("indent")))
@@ -734,95 +825,101 @@ def render_template(template: str, context: Context) -> tuple[str, set[str]]:
     return rendered, used
 
 
-def default_template_path() -> Path:
-    """Return <repo_root>/templates/... for a script in <repo_root>/scripts/."""
-    return (
-        Path(__file__).resolve().parent.parent
-        / "templates"
-        / "QMK_Keyboard_SignalRGB_Plugin.js.template"
-    )
+def infer_output_filename(keyboard_target: str) -> str:
+    flattened = keyboard_target.replace("/", "_")
+    return f"{flattened}_signalrgb_plugin.js"
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate a SignalRGB QMK plugin from a line-placeholder JavaScript template."
+        description=(
+            "Generate a SignalRGB plugin from rgb_matrix.layout returned by "
+            "`qmk info -f json`."
+        )
     )
     parser.add_argument(
-        "--info",
-        type=Path,
-        help="QMK info.json; inferred from --via, --keyboard, or cwd when omitted",
+        "--keyboard",
+        "-kb",
+        help=(
+            "optional QMK build target or path, e.g. "
+            "keychron/k11_max/ansi_encoder/rgb; when omitted, qmk info resolves "
+            "the keyboard from QMK config or directory context"
+        ),
     )
     parser.add_argument(
-        "--via",
+        "--qmk-root",
         type=Path,
-        help="VIA keyboard-definition JSON; discovered under via_json/ when unambiguous",
+        help=(
+            "working QMK repository root; when omitted, preserve cwd and let the "
+            "QMK CLI use its configured home/context"
+        ),
+    )
+    parser.add_argument(
+        "--qmk-command",
+        default="qmk",
+        help="QMK CLI executable used for `qmk info` (default: qmk)",
     )
     parser.add_argument(
         "--template",
         type=Path,
         default=default_template_path(),
         help=(
-            "JavaScript .js.template file; defaults to "
-            "<repo_root>/templates/QMK_Keyboard_SignalRGB_Plugin.js.template "
-            "relative to this script"
+            "JavaScript template; defaults to "
+            "<generator_repo>/templates/QMK_Keyboard_SignalRGB_Plugin.js.template"
         ),
     )
     parser.add_argument(
-        "--output",
+        "--output", "-o",
         type=Path,
-        help="generated plugin path; defaults to <Keyboard>_QMK_<Layout>_Keyboard.js in cwd",
+        help=(
+            "generated plugin path; defaults to the flattened QMK target in cwd, "
+            "e.g. keychron_k11_max_ansi_encoder_rgb.js"
+        ),
     )
-    parser.add_argument(
-        "--keyboard",
-        help="QMK keyboard target such as keychron/k11_max",
-    )
-    parser.add_argument(
-        "--qmk-root",
-        type=Path,
-        help="QMK repository root; normally inferred from cwd or an input path",
-    )
-    parser.add_argument("--layout", help="QMK layout name; inferred from the VIA matrix when omitted")
 
-    parser.add_argument("--name", help="override the generated plugin/device name")
-    parser.add_argument("--version", default="1.0.0", help="plugin version used by ###version###")
-    parser.add_argument("--publisher", default="WhirlwindFX", help="publisher used by ###publisher###")
-    parser.add_argument("--vendor-id", help="override USB vendor ID, e.g. 0x3434")
-    parser.add_argument("--product-id", help="override USB product ID, e.g. 0x0AB3")
+    parser.add_argument("--name", help="override merged QMK keyboard_name")
+    parser.add_argument("--version", default="1.0.0", help="plugin version")
+    parser.add_argument("--publisher", default="WhirlwindFX", help="plugin publisher")
+    parser.add_argument(
+        "--image-url",
+        help=(
+            "override ImageUrl(); otherwise use the first Markdown image in the "
+            "nearest keyboard readme.md; failure warns and emits an empty function"
+        ),
+    )
+    parser.add_argument("--vendor-id", help="override merged USB VID, e.g. 0x3434")
+    parser.add_argument("--product-id", help="override merged USB PID, e.g. 0x0AB3")
 
     parser.add_argument(
-        "--position-origin",
-        choices=("top-left", "center"),
-        default="top-left",
-        help="which point of each QMK key rectangle becomes the LED coordinate (default: top-left)",
+        "--normalize-positions",
+        action="store_true",
+        help=(
+            "subtract the minimum QMK x/y before emitting positions "
+            "(default: preserve raw QMK coordinates)"
+        ),
     )
     parser.add_argument(
         "--position-scale",
         type=float,
         default=1.0,
-        help="multiply normalized QMK x/y coordinates before integer quantization (default: 1)",
+        help="multiply QMK RGB coordinates before quantization (default: 1)",
     )
     parser.add_argument(
         "--quantize",
         choices=("floor", "round", "ceil"),
-        default="floor",
-        help="convert QMK coordinates to the integer grid required by device.color() (default: floor)",
-    )
-
-    parser.add_argument(
-        "--led-map",
-        type=Path,
-        help="optional JSON array or {'row,col': ledIndex} object overriding sequential vKeys",
-    )
-    parser.add_argument(
-        "--led-offset",
-        type=int,
-        default=0,
-        help="starting LED index when --led-map is omitted (default: 0)",
+        default="round",
+        help=(
+            "integer conversion after scaling (default: round; QMK RGB coordinates "
+            "are normally integers)"
+        ),
     )
     parser.add_argument(
         "--names-json",
         type=Path,
-        help="optional {'row,col': 'SignalRGB key name'} JSON object",
+        help=(
+            "optional names keyed by LED index or matrix address, "
+            "e.g. {'0':'Esc','1,2':'Q'}"
+        ),
     )
     parser.add_argument(
         "--list-generators",
@@ -848,16 +945,40 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
     try:
-        info, via, keyboard_target, qmk_root = resolve_inputs(args)
-        args.info = info
-        args.via = via
-        context = build_context(args)
-        output = args.output.expanduser() if args.output else infer_output_path(context)
+        template = args.template.read_text(encoding="utf-8")
+        requested_generators = template_generator_names(template)
+
+        qmk_cwd, requested_target = resolve_qmk_invocation(args)
+        info, resolved_target = load_resolved_qmk_info(
+            qmk_cwd, requested_target, args.qmk_command
+        )
+        if resolved_target is None:
+            raise GenerationError(
+                "qmk info succeeded but did not report keyboard_folder; pass --keyboard "
+                "or use a QMK version supporting `qmk info --api`"
+            )
+        keyboard_target = resolved_target
+
+        image_url: str | None = None
+        image_source = "not requested by template"
+        if "imageUrl" in requested_generators or args.image_url is not None:
+            image_url, image_source = resolve_image_url(args, qmk_cwd, keyboard_target)
+            if image_url is None:
+                print(
+                    f"warning: no plugin image URL: {image_source}; "
+                    "emitting empty ImageUrl()",
+                    file=sys.stderr,
+                )
+
+        context = build_context(args, info, keyboard_target, image_url)
+
+        output = args.output.expanduser() if args.output else Path.cwd() / infer_output_filename(keyboard_target)
         if not output.is_absolute():
             output = Path.cwd() / output
         output = output.resolve()
+        if output.is_dir():
+            output = output / infer_output_filename(keyboard_target)
 
-        template = args.template.read_text(encoding="utf-8")
         rendered, used = render_template(template, context)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(rendered, encoding="utf-8", newline="\n")
@@ -865,10 +986,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    inferred = f", keyboard={keyboard_target}" if keyboard_target else ""
+    center = f", QMK center={list(context.center_point)}" if context.center_point else ""
     print(
-        f"generated {output} using layout {context.layout_name!r}{inferred}: "
-        f"{len(context.keys)} LEDs, Size={list(context.size)}, "
+        f"generated {output} from `qmk info` target {keyboard_target!r}: "
+        f"{len(context.leds)} LEDs, Size={list(context.size)}{center}, "
+        f"image={image_source!r}, "
         f"placeholders={','.join(sorted(used)) or '(none)'}"
     )
     return 0

@@ -121,3 +121,6 @@ compile_commands.json
 via*.json
 /keyboards/**/keymaps/via/*
 /keyboards/**/keymaps/vial/*
+
+# Generated
+*_signalrgb_plugin.js
