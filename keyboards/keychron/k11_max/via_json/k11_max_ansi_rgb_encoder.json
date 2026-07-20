@@ -44,12 +44,13 @@
                 ["Reactive Multinexus", 20],
                 ["Splash", 21],
                 ["Solid Splash", 22],
-                ["Per Key RGB", 23],
-                ["Mix RGB", 24]
+                ["SignalRGB", 24],
+                ["Per Key RGB", 24],
+                ["Mix RGB", 25]
               ]
             },
             {
-              "showIf": "{id_qmk_rgb_matrix_effect} > 1 && {id_qmk_rgb_matrix_effect} < 23",
+              "showIf": "{id_qmk_rgb_matrix_effect} > 1 && {id_qmk_rgb_matrix_effect} < 24",
               "label": "Effect Speed",
               "type": "range",
               "options": [0, 255],
