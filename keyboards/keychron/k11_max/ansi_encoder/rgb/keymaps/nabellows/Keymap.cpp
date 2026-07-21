@@ -1,219 +1,151 @@
 #include "compat.hpp"
 
+#include "combos.hpp"
+#include "config.h"
+#include "key_util.hpp"
+#include "keys.hpp"
+#include "layer_util.hpp"
+#include "layers.hpp"
+#include "util.hpp"
+
 extern "C" {
 
-#include <assert.h>
-#include <stdint.h>
+#include QMK_KEYBOARD_H
+
 #include "action.h"
+#include "action_layer.h"
 #include "action_tapping.h"
 #include "action_util.h"
-#include "keymap_us.h"
-#include "modifiers.h"
-
-#include QMK_KEYBOARD_H
 #include "keychron_common.h"
 #include "keycodes.h"
-#include "process_key_override.h"
-#include "progmem.h"
 #include "process_combo.h"
+#include "progmem.h"
 #include "quantum_keycodes.h"
 
-typedef enum {
-    BASE,
-	MAC_BASE = BASE,
-	WIN_BASE = MAC_BASE + 1,
-	MAC_FN1,
-	WIN_FN1,
-	FN2,
-    //TODO: Add more layers or use for bottom left two pinky keys and right cmd? (or, keep right-cmd for the rare right-only override?)
-    // One could be a leader key... Or macro? Might as well still try to use layers though
-} layer_t;
-// assert layer size for dynamic layers? Wtf do they even do in via if you use more layers here
+} // extern "C"
 
-typedef enum {
-    //TODO: make it still send KC_CTRL when pressed (like with mouse ctrl click)
-    CTL_ESC = LCTL_T(KC_ESC),
-    GUI_SPC = MT(MOD_LGUI, KC_SPC),
-    T_CAPS_WORD = QK_CAPS_WORD_TOGGLE,
-} custom_kc_t;
 
-//TODO: tbh, should i just revert and let keychon steal this? This currently provides no value right
-bool dip_switch_update_user(uint8_t index, bool active) {
-    if (index == 0) {
-        int layer = active ? MAC_BASE : WIN_BASE;
-        default_layer_set(1UL << layer);
-    }
-    return true;
-}
+using namespace key_defs;
 
-typedef enum {
-    DEFAULT,
-    PERMISSIVE_HOLD,
-    HOLD_ON_OTHER_KEY_PRESS,
-} mod_tap_behavior_t;
+DEFINE_LAYER(LAYOUT_BASE, {
+    set({
+        .matrix = LAYOUT_69_ansi(
+            KC_ESC, /**/ KC_1,  KC_2,  KC_3,  KC_4,  KC_5,  KC_6, /**/   KC_7,   KC_8,   KC_9,   KC_0,   KC_MINS, KC_EQL,       /**/KC_BSPC,   /**/   KNOB_PRESS,
+            /*------------------------------------------------------------------------------------------------------------------------------------------------*/
+            KC_TAB, /**/   KC_Q,   KC_W,   KC_E,   KC_R,   KC_T,  /**/ KC_Y,  KC_U,   KC_I,   KC_O,   KC_P,    KC_LBRC, KC_RBRC,/**/ KC_BSLS,  /**/   KC_DEL,
+            KC_CAPS,/**/   KC_A,   KC_S,   KC_D,   KC_F,   KC_G,  /**/        KC_H,   KC_J,   KC_K,   KC_L,    KC_SEMI, KC_QUOT,/**/ KC_ENT,   /**/   KC_HOME,
+            KC_LSFT,/**/   KC_Z,   KC_X,   KC_C,   KC_V,   KC_B,  /**/ KC_B,  KC_N,   KC_M,  KC_COMM, KC_DOT,  KC_SLSH,    /**/ KC_RSFT,      KC_UP,
+            /*------------------------------------------------------------------------------------------------------------------------------------------------*/
+            KC_LCTL, KC_LWIN,      KC_LOPT,    LSPACE,      FN1,  /**/   FN2,       RSPACE,         KC_RCMD,               /**/      KC_LEFT, KC_DOWN, KC_RGHT
+        ),
+        .encoder_map = ENCODER_CCW_CW(KNOB_CCW, KNOB_CW),
+    });
+})
 
-mod_tap_behavior_t get_mod_tap_behavior(uint16_t keycode, keyrecord_t* record) {
-    switch (keycode) {
-        case CTL_ESC: return HOLD_ON_OTHER_KEY_PRESS; // Considered this for permissive hold. Upside is that fast esc typistry works better, downside is that the effect of a ctrl+key is delayed until the key release
-        case GUI_SPC: return PERMISSIVE_HOLD; // Adds lag to the hold/chord action, but allows space to work much better especially in heavy-handed stuff like left hand hitting shift and space where apparently I lag
-        // If desired, I could make PERM_HOLD the default for windows but hold-on-other the default for mac (since I use cmd way more on mac than on win key)
-        default: return DEFAULT;
-    }
-}
+DEFINE_LAYER(BASE, {
+    clone();
+    map_base(FN1, FN2)
+        .to(kMO(Layer::FN1), kMO(Layer::FN2));
 
-bool get_permissive_hold(uint16_t keycode, keyrecord_t* record) {
-    return get_mod_tap_behavior(keycode, record) == PERMISSIVE_HOLD;
-}
-bool get_hold_on_other_key_press(uint16_t keycode, keyrecord_t* record) {
-    return get_mod_tap_behavior(keycode, record) == HOLD_ON_OTHER_KEY_PRESS;
-}
+    map_base(KC_CAPS).to(CTL_ESC);
+    map_base(KC_ESC).to(KC_GRV);
+
+    map_base(LSPACE).to(GUI_SPC);
+    map_base(RSPACE).to(KC_SPACE);
+
+    map_base(KNOB_PRESS, KNOB_CCW, KNOB_CW)
+        .to(KC_MUTE, KC_VOLD, KC_VOLU);
+})
+static_assert(kLayerDef<Layer::BASE>.matrix[2][0] == CTL_ESC);
+
+DEFINE_LAYER(FN1, {
+    set({
+        .matrix = LAYOUT_69_ansi(
+            _______, _______,  _______,  _______, _______, _______, _______,  _______, _______, _______, _______,  _______,  _______,  _______,          UG_TOGG,
+            _______, BT_HST1,  BT_HST2,  BT_HST3, P2P4G,   _______, _______,  _______, _______, _______, _______,  _______,  _______,  _______,          KC_INS,
+            UG_TOGG, UG_NEXT,  UG_VALU,  UG_HUEU, UG_SATU, UG_SPDU,           _______, _______, _______, _______,  _______,  _______,  _______,          KC_END,
+            _______, UG_PREV,  UG_VALD,  UG_HUED, UG_SATD, UG_SPDD, _______,  _______, _______, _______,  _______, _______,  _______,           KC_PGUP,
+            _______, _______,  _______,           _______,          _______,  _______,          _______,           _______,            _______, KC_PGDN, _______
+        ),
+        .encoder_map = ENCODER_CCW_CW(UG_VALD, UG_VALU),
+    });
+    map_base(LSPACE, RSPACE).to_single(QK_LAYER_LOCK);
+
+    map_base_span("1=").to(f_keys<1, 12>);
+    map_base("hjkl").to(arrows_hjkl);
+
+    use_base(KC_ESC);
+})
 
 //TODO: perhaps some double tap fn1 fn2 keys to toggle the layer instead of one-shot (with timeout? gets unset if pressed once? )
-// Decide how to make hjkl and wasd useful. Which layer for numpad? unfortunately i find fn2 unergonomic at least right now, prefer a left hand key
-// But I would also prefer said left hand key for hjkl
-// clang-format off
-const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
-    [BASE] = LAYOUT_69_ansi(
-        KC_GRV, /**/ KC_1,  KC_2,  KC_3,  KC_4,  KC_5,  KC_6, /**/   KC_7,   KC_8,   KC_9,   KC_0,   KC_MINS, KC_EQL,       /**/KC_BSPC,   /**/   KC_MUTE,
-        /*------------------------------------------------------------------------------------------------------------------------------------------------*/
-        KC_TAB, /**/   KC_Q,   KC_W,   KC_E,   KC_R,   KC_T,  /**/ KC_Y,  KC_U,   KC_I,   KC_O,   KC_P,    KC_LBRC, KC_RBRC,/**/ KC_BSLS,  /**/   KC_DEL,
-        CTL_ESC,/**/   KC_A,   KC_S,   KC_D,   KC_F,   KC_G,  /**/        KC_H,   KC_J,   KC_K,   KC_L,    KC_SCLN, KC_QUOT,/**/ KC_ENT,   /**/   KC_HOME,
-        KC_LSFT,/**/   KC_Z,   KC_X,   KC_C,   KC_V,   KC_B,  /**/ KC_B,  KC_N,   KC_M,  KC_COMM, KC_DOT,  KC_SLSH,    /**/ KC_RSFT,      KC_UP,
-        /*------------------------------------------------------------------------------------------------------------------------------------------------*/
-        KC_LCTL, KC_LGUI,  KC_LOPT,      GUI_SPC,     MO(MAC_FN1),/**/MO(FN2),     KC_SPC,      KC_RCMMD,              /**/      KC_LEFT, KC_DOWN, KC_RGHT
-    ),
+DEFINE_LAYER(FN2, {
+    trans();
+    map_base(LSPACE, RSPACE).to_single(QK_LAYER_LOCK);
 
-    #define MAP(KEY, NEW_MAP) NEW_MAP
+    map_base("12").to(KC_BRID, KC_BRIU);
+    map_base("34").to(KC_MCTRL, KC_LNPAD); // mac keys (but idk if windows uses)
+    map_base("56").to(UG_VALD, UG_VALU);
+    map_base("789").to(KC_MEDIA_PREV_TRACK, KC_MEDIA_PLAY_PAUSE, KC_MEDIA_NEXT_TRACK);
+    map_base("0-+").to(KC_MUTE, KC_VOLD, KC_VOLU);
 
-    //TODO: make something like FOR_EACH_BASE() and apply to both base and FOR_EACH_BASE_FN1 and inside use MO(WHICH(FN1)) or other keys which recursively expand to something
-    // if that key acts differently in the two bases? Or nah, just make WIN_FN1 and WIN always exist, and fallthrough 99% of time
-    //TODO: Refactor to make the win duplicates (a) not exist or (b) reuse mac definition
-    // #if WIN_BASE != BASE
-    [WIN_BASE] = LAYOUT_69_ansi(
-        KC_GRV,  KC_1,	   KC_2,	 KC_3,	  KC_4,    KC_5,	KC_6,	  KC_7,    KC_8,	KC_9,	 KC_0,	   KC_MINS,  KC_EQL,   KC_BSPC,          KC_MUTE,
-        KC_TAB,  KC_Q,	   KC_W,	 KC_E,	  KC_R,    KC_T,	KC_Y,	  KC_U,    KC_I,	KC_O,	 KC_P,	   KC_LBRC,  KC_RBRC,  KC_BSLS,          KC_DEL,
-        CTL_ESC, KC_A,	   KC_S,	 KC_D,	  KC_F,    KC_G,              KC_H,    KC_J,	KC_K,	 KC_L,	   KC_SCLN,  KC_QUOT,  KC_ENT,           KC_HOME,
-        KC_LSFT, KC_Z,	   KC_X,	 KC_C,    KC_V,	   KC_B,	KC_B,     KC_N,	   KC_M,	KC_COMM, KC_DOT,   KC_SLSH,  KC_RSFT,           KC_UP,
-        KC_LCTL, KC_LWIN,  KC_LALT,           KC_SPC,           MO(WIN_FN1), MO(FN2),       KC_SPC,            KC_RALT,            KC_LEFT, KC_DOWN, KC_RGHT),
-    // #endif
+    use_base(KC_ESC);
+    use_base(KC_CAPS);
 
-    // Could create a layer underneath these two for common features like f1-f12... Or create only a mac_fn1 layer or only a win_fn1 layer and make the larger one fallback to the other
-    // Or just a utility to reduce duplication. Or, just copy paste and suck it up.
-    // Also dont love how this macro takes away the arr-of-arr indexing such that I dont have a 'row' concept to do some progammatic access of all keys in a 'row', unless there is a way?
-    // But, the default "enable layer win_fn1", does it have a way to enable multiple layers? Because it wont work to make win fallback to mac if mac isn't also enabled (and if so, make FN1 FN1_DEFAULT rather than 'mac')
-    [MAC_FN1] = LAYOUT_69_ansi(
-        KC_GRV,  KC_BRID,  KC_BRIU, KC_MCTRL, KC_LNPAD,RM_VALD, RM_VALU,  KC_MPRV, KC_MPLY, KC_MNXT, KC_MUTE,  KC_VOLD,  KC_VOLU,  _______,          RM_TOGG,
-        _______, BT_HST1,  BT_HST2,  BT_HST3, P2P4G,   _______, _______,  _______, _______, _______, _______,  _______,  _______,  _______,          KC_INS,
-        RM_TOGG, RM_NEXT,  RM_VALU,  RM_HUEU, RM_SATU, RM_SPDU,           _______, _______, _______, _______,  _______,  _______,  _______,          KC_END,
-        _______, RM_PREV, RM_VALD,  RM_HUED, RM_SATD, RM_SPDD, _______,  NK_TOGG, _______, _______,  _______, _______,  _______,           KC_PGUP,
-        _______, _______,  _______,           _______,          _______,  _______,          _______,           _______,            _______, KC_PGDN, _______),
+    map_base<false>("b").to(BAT_LVL); // b is duplicated so we disable strict mode
+    map_base(KC_BACKSPACE).to(NK_TOGG);
 
-    [WIN_FN1] = LAYOUT_69_ansi(
-        KC_GRV,  KC_BRID,  KC_BRIU,  KC_TASK, KC_FILE, RM_VALD, RM_VALU,  KC_MPRV, KC_MPLY, KC_MNXT, KC_MUTE,  KC_VOLD,  KC_VOLU,  _______,          RM_TOGG,
-        _______, BT_HST1,  BT_HST2,  BT_HST3, P2P4G,   _______, _______,  _______, _______, _______, _______,  _______,	 _______,  _______,          KC_INS,
-        RM_TOGG, RM_NEXT,  RM_VALU,  RM_HUEU, RM_SATU, RM_SPDU,           _______, _______, _______, _______,  _______,  _______,  _______,          KC_END,
-        _______, RM_PREV, RM_VALD,  RM_HUED, RM_SATD, RM_SPDD, _______,  NK_TOGG, _______, _______,  _______, _______,  _______,           KC_PGUP,
-        _______, _______,  _______,           _______,          _______,  _______,          _______,           _______,            _______, KC_PGDN, _______),
+    // Numpad
+    map_base(
+        "uio"
+        "jkl"
+        "nm,."
+    ).to(
+        "789"
+        "456"
+        "0123"
+    );
 
-    //TODO: might be nice to similarly define a macro or const-init function which lets you map from 'base' layer to new key so quite simply I specify pairs like KC_1->KC_F1
-    // Might need hella magic, but this idea would be really really helpful and could isolate logical groups rather than position like ADD_GROUP(MAP(J, DOWN)) etc
-    // Ideally, we integrate one magic cpp file which exposes C extern linkage symbols?
-    [FN2] = LAYOUT_69_ansi(
-        KC_TILD, KC_F1,    KC_F2,	 KC_F3,   KC_F4,   KC_F5,	KC_F6,	  KC_F7,   KC_F8,	KC_F9,	 KC_F10,   KC_F11,	 KC_F12,   _______,          _______,
-        _______, _______,  _______,  _______, _______, _______, _______,  _______, _______, _______, _______,  _______,  _______,  _______,          _______,
-        _______, _______,  _______,  _______, _______, _______,           _______, _______, _______, _______,  _______,  _______,  _______,          _______,
-        _______, _______,  _______,  _______, _______, BAT_LVL, BAT_LVL,  _______, _______, _______, _______,  _______,  _______,           _______,
-        _______, _______,  _______,           _______,          _______,  _______,          _______,           _______,            _______, _______, _______)
-};
+    // TODO: interface like this? I guess you could default-init matrix and then still designate init the encoder
+    // encoder_map = ENCODER_CCW_CW(UG_VALD, UG_VALU);
+})
 
-const uint16_t PROGMEM combo_shifts_caps_word[] = { KC_LSFT, KC_RSFT, COMBO_END };
-enum combos{
-    BOTH_SHIFT
-};
-// Note this crap has to exist here with normal static linkage or whatever and is accessed by name via INCLUDING this file. Sketchy defeaults IMO, not C-like
-combo_t key_combos[] = {
-    //TODO: maybe implement as a manual process_record_user, since I think combo is suppressing key down events making things like shift click worse
-    //Perhaps possible by making the shift keys send two keys (custom) SHIFT+TCAPS_LEFT and SHIFT+TCAPS_RIGHT and make the combo defined on TCAPS and not shift? (perhaps qmk will not swallow)
-    [BOTH_SHIFT] = COMBO(combo_shifts_caps_word, T_CAPS_WORD),
-};
-// Per-combo timeouts
-uint16_t get_combo_term(uint16_t combo_index, combo_t *combo) {
-    switch (combo_index) {
-        case BOTH_SHIFT:
-            return UINT16_MAX;
-    }
-    return COMBO_TERM;
+extern "C" {
+
+namespace {
+constexpr PROGMEM KeymapDef<> KEYMAP;
 }
+extern const auto& keymaps = KEYMAP.keymap;
 
-constexpr layer_state_t kAllLayers = ~0;
-
-static bool enable_shift_space_underscore = false;
-const key_override_t shift_space_override = {
-    .trigger                                = KC_SPACE,
-    .trigger_mods                           = MOD_MASK_SHIFT,
-    .layers                                 = kAllLayers,
-    .negative_mod_mask                      = 0,
-    .suppressed_mods                        = MOD_MASK_SHIFT,
-    .replacement                            = KC_UNDERSCORE,
-    .options                                = ko_options_default,
-    .custom_action                          = NULL,
-    .context                                = NULL,
-    .enabled                                = &enable_shift_space_underscore
-};
-
-const key_override_t* key_overrides[] = { &shift_space_override };
-
-// Override: just adding space support (will do shift-space without cancelling, then will add custom override for shift-space for caps-word mode)
-//TODO: debug why shift key is registering as stuck down even though it should be using weak mods
-bool caps_word_press_user(uint16_t keycode) {
-    switch (keycode) {
-        // Keycodes that continue Caps Word, with shift applied.
-        case KC_A ... KC_Z:
-        case KC_SPACE:
-            add_weak_mods(MOD_BIT(KC_LSFT));  // Apply shift to next key.
-            return true;
-
-        // Keycodes that continue Caps Word, without shifting.
-        case KC_1 ... KC_0:
-        case KC_MINUS:
-        case KC_BSPC:
-        case KC_DEL:
-        case KC_UNDERSCORE:
-            return true;
-
-        default:
-            return false;  // Deactivate Caps Word.
-    }
-}
-void caps_word_set_user(bool active) {
-    enable_shift_space_underscore = active;
-}
-
-void keyboard_post_init_user() {
-#ifdef DEBUG
-    debug_enable = true;
+#ifdef ENCODER_MAP_ENABLE
+extern const auto& encoder_map = KEYMAP.encoder_map;
 #endif
+} // extern "C"
+
+// (QMK EXPORT) (expects not const for some reason)
+auto key_combos = invoke_with_index_seq<kNumCombos>([]<sz...is>{
+    return std::array<combo_t, kNumCombos> {{
+        COMBO(ComboDef<Combo(is)>::keys, ComboDef<Combo(is)>::action)...
+    }};
+});
+
+extern "C" {
+
+#include "key_overrides.hpp"
+#include "keymap_introspection.c"
+
+static_assert(NUM_KEYMAP_LAYERS_RAW == kNumLayers);
+static_assert(ARRAY_SIZE(key_combos) == kNumCombos);
+static_assert(ARRAY_SIZE(key_overrides) == kNumKeyOverrides);
 }
 
-#if defined(ENCODER_MAP_ENABLE)
-	const uint16_t PROGMEM encoder_map[][NUM_ENCODERS][2] = {
-		[MAC_BASE] = {ENCODER_CCW_CW(KC_VOLD, KC_VOLU)},
-		[WIN_BASE] = {ENCODER_CCW_CW(KC_VOLD, KC_VOLU)},
-		[MAC_FN1]  = {ENCODER_CCW_CW(RM_VALD, RM_VALU)},
-		[WIN_FN1]  = {ENCODER_CCW_CW(RM_VALD, RM_VALU)},
-		[FN2]	   = {ENCODER_CCW_CW(_______, _______)},
-	};
-#endif // ENCODER_MAP_ENABLE
+static_assert(index_of(kLayerDef<Layer::BASE>.matrix, KC_1) == md_index<2>{0, 1});
+static_assert(index_of(kLayerDef<Layer::BASE>.matrix, KC_EQL) == md_index<2>{0, 12});
 
-// clang-format on
-bool process_record_user(uint16_t keycode, keyrecord_t *record) {
-    if (!process_record_keychron_common(keycode, record)) {
-        return false;
-    }
-    return true;
-}
+static_assert(kLayerDef<Layer::BASE>.matrix[0][1] == KC_1);
+static_assert(kLayerDef<Layer::FN1>.matrix[0][1] == KC_F1);
+static_assert(kLayerDef<Layer::BASE>.matrix[0][12] == KC_EQL);
+static_assert(kLayerDef<Layer::FN1>.matrix[0][12] == KC_F12);
+static_assert(kLayerDef<Layer::FN1>.encoder_map[0][0] == UG_VALU);
+static_assert(kLayerDef<Layer::FN1>.encoder_map[0][1] == UG_VALD);
 
-#include "keymap_introspection.hpp"
-
-}
-
+static_assert(kLayerDef<Layer::FN2>.matrix[2][8] == KC_5);

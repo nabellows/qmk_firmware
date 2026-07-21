@@ -15,8 +15,11 @@
     - [link](https://github.com/qmk/qmk_firmware/blob/master/docs/features/rgb_matrix.md#indicator-examples-indicator-examples)
     - Could light keys by which layer
 
+- Custom function to restore certain things as firmware-default eprom settings like snap-tap a/d? 
+- Use magic or other to actually implement toggle for invasive keymaps and/or a normie layer like for gaming (make caps lock caps lock again, no interruption to shift and others?)
+- A key to put caps word into super sticky mode where stuff like comma does not interrupt. I guess thats not caps word no more, but shift space...
+
 ## Other
 - GUI which-key helper of some kind would be wild, probably just a wrapper around launcher/via
 - Should I just/also use kanata to make gaming keyboard usable? If so, why even use QMK for much stuff besides keyboard specific features like lights, etc? 
-
-
+    - Well, software-level versions are kinda iffy in the experience so far...

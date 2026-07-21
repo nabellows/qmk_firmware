@@ -11,3 +11,4 @@ KEYMAP_INTROSPECTION = no
 
 # THIS FILE CANNOT BE NAMED keymap.cpp NOR main.cpp BECAUSE QMK BUILD SYSTEM IGNORES IT
 SRC += Keymap.cpp
+SRC += Overrides.cpp
