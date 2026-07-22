@@ -13,9 +13,3 @@
 
 #define COMBO_TERM_PER_COMBO
 #define KEY_OVERRIDE_INCLUDE_WEAK_MODS
-
-// DEBUGGING ONLY (while info.json is tampered with)
-#ifdef DEBUG
-#define DEBUG_KEY_OVERRIDE
-#undef APDAPTIVE_NKRO_ENABLE
-#endif
