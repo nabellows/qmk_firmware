@@ -8,6 +8,7 @@
 #include <array>
 #include <span>
 #include <string_view>
+#include <utility>
 
 #define KC_SEMI KC_SEMICOLON
 
@@ -66,7 +67,7 @@ constexpr char key_to_char(qmk_key_t k) {
 }
 
 struct Key {
-    qmk_key_t val{};
+    qmk_key_t val; // Purposely do not init, constexpr should fail in places they forget to init
     constexpr Key() = default;
     constexpr Key(qmk_key_t val) : val{ val }{}
     constexpr Key(auto val) requires requires { qmk_key_t(val); } : val{ qmk_key_t(val) }{}
@@ -75,6 +76,9 @@ struct Key {
     constexpr char to_char() const { return key_to_char(val); }
     constexpr qmk_key_t to_qmk() const { return val; }
     constexpr operator qmk_key_t() const { return val; }
+
+    constexpr Key& operator++() { ++val; return *this; }
+    constexpr Key operator++(int) { return std::exchange(*this, val + 1); }
 };
 
 template<sz N>

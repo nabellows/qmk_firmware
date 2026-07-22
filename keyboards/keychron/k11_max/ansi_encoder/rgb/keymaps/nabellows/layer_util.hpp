@@ -3,8 +3,10 @@
 #include "compat.hpp"
 
 #include <string_view>
+#include <utility>
 
 #include "key_util.hpp"
+#include "keycodes.h"
 #include "layers.hpp"
 #include "util.hpp"
 
@@ -27,6 +29,7 @@ struct LayerDefBase {
 #endif
 protected:
     constexpr void trans() {
+        // One warning is this replaces KC_NO, but it should be undisturbed in base...
         ce_fill(KC_TRNS, matrix);
         ce_fill(KC_TRNS, encoder_map);
     }
@@ -34,8 +37,9 @@ protected:
         ce_copy(rhs.matrix, matrix);
         ce_copy(rhs.encoder_map, encoder_map);
     }
-    template<Layer layer = layer_base>
+    template<Layer layer>
     constexpr void clone() { set(kLayerDef<layer>); }
+    constexpr void clone_base() { clone<layer_base>(); }
     //TODO: map() (not base)?
     template<bool strict = true>
     constexpr void map_base_pair(Key from, Key to) {
@@ -55,19 +59,36 @@ protected:
         if (strict && !found) throw "Mapping not found in base! (required by strict=true)";
     }
 
+    class MappingTracker : CrtpMoveWrapper<MappingTracker> {
+        bool needs_map = true;
+    public:
+        constexpr MappingTracker() = default;
+        constexpr MappingTracker(MappingTracker&&) = default;
+        constexpr ~MappingTracker() {
+            if (needs_map) throw "Forgot to map me!";
+        }
+        constexpr bool mapped(bool val = true) { return needs_map = !val; }
+        constexpr void move_out() { needs_map = false; }
+    };
+
     // Guaranteed to point into self. Was considering using std::span as base of operations,
     // but technically UB/not constexpr to do pointer range checks to see for example,
     // what member it is from (or if its an arbitrary collection of Keys)
-    struct KeySpan {
+    class KeySpan {
+        const Key* base_data;
         Key* data;
         sz raw_size;
         sz num_keys;
+        MappingTracker tracker;
+    public:
 
         constexpr sz size() const { return num_keys; }
 
-        constexpr KeySpan(LayerDefBase& self, auto member, sz from_row, sz from_col, sz to_row, sz to_col)
-        : data{ &(self.*member)[from_row][from_col] }, raw_size{ &(self.*member)[to_row][to_col] - data + sz(1) } {
+        constexpr KeySpan(LayerDefBase& self, auto member, sz from_row, sz from_col, sz to_row, sz to_col) {
             if (from_row > to_row || from_col > to_col) throw "Invalid Key Span (negative direction)";
+            base_data = &(kLayerDef<layer_base>.*member)[from_row][from_col];
+            data = &(self.*member)[from_row][from_col];
+            raw_size = &(self.*member)[to_row][to_col] - data + sz(1);
             num_keys = raw_size - std::count(data, data+raw_size, Key(KC_NO));
         }
 
@@ -85,8 +106,7 @@ protected:
                 return or_else;
             };
             for (Key& key : std::span(data, raw_size)) {
-                //TODO: is this right?
-                if (key.to_qmk() == KC_NO) continue;
+                if (base_data[&key-data].to_qmk() == KC_NO) continue;
                 if (!in_gen_range(true)) throw "Mismatch mapping size: base span length is GREATER than fixed-length generator (strict=true)";
                 if constexpr (requires (Key k){ gen(i, k); }) {
                     key = Key(gen(i, key));
@@ -95,11 +115,12 @@ protected:
                 } else if constexpr (requires { gen[i]; }){
                     key = Key(gen[i]);
                 } else {
-                    key = Key(gen);
+                    key = Key(gen); // Lets force/assume that it is guaranteed to call the gen in increasing index order
                 }
                 ++i;
             }
             if (in_gen_range(false)) throw "Mismatch mapping size: base span length is LESS than fixed-length generator (strict=true)";
+            tracker.mapped();
             return *this;
         }
 
@@ -109,26 +130,22 @@ protected:
             return to<strict>(KeyList{ first, Key(rest)... });
         }
 
+        // TODO: Should just invoke .to(KeyRange(args...)) and KeyRange should be adapted to have the finite/infinite function
         template<bool strict = true, class End = Void>
         constexpr KeySpan& to_range(Key range_begin, End range_end = {}) {
-            auto out_of_range = [&](Key k){
-                if constexpr (requires { k > range_end; }) {
-                    return (k > range_end);
-                }
+            constexpr bool finite = requires { range_end < range_begin; };
+            auto in_range = [&](Key k){
+                if constexpr (finite) return !(range_end < k);
                 return true;
             };
-            if (out_of_range(range_begin)) throw "Invalid range (begin > end)";
-            int map_end = 0;
+            if (!in_range(range_begin)) throw "Invalid range (begin > end)";
+            Key cur = range_begin;
             to([&](int i){
-                Key res = range_begin + i;
-                if (out_of_range(res)) throw "Range overflow";
-                map_end = res;
-                return res;
+                if (!in_range(cur)) throw "Range overflow (rhs/'to' side of mapping is too short to map all the keys)";
+                return cur++;
             });
-            if constexpr (strict) {
-                if (!out_of_range(map_end + 1)) {
-                    throw "Ranges do not exactly match in size (strict=true)";
-                }
+            if (strict && finite && in_range(cur)) {
+                throw "Ranges do not exactly match in size (strict=true)";
             }
             return *this;
         }
@@ -146,18 +163,18 @@ protected:
                 auto [to_row, to_col] = *to_index;
                 // if (from_row != to_row) throw "Bad span: Span must lie in a single row"; // Unsure if this is preferred
                 if (res) throw "Ambiguous span";
-                res = KeySpan(*this, member, from_row, from_col, to_row, to_col);
+                res.emplace(*this, member, from_row, from_col, to_row, to_col);
             }
         });
         if (!res) throw "Could not find matching span";
-        return *res;
+        return std::move(*res);
     }
 
     constexpr KeySpan map_base_span(KeyList<2> pair) {
         return map_base_span(pair.front(), pair.back());
     }
 
-    constexpr KeySpan map_base_row(sz row) {
+    constexpr KeySpan map_row(sz row) {
         return KeySpan(*this, &LayerDefBase::matrix, row, 0, row, MATRIX_COLS-1);
     }
 
@@ -178,24 +195,20 @@ protected:
     class KeyListMapper {
         LayerDefBase& def;
         KeyList<N> from_list;
-        bool mapped = false;
+        MappingTracker tracker;
     public:
         constexpr KeyListMapper(LayerDefBase& def, KeyList<N> const& from_list)
         : def{ def }, from_list{ from_list } {}
 
-        constexpr ~KeyListMapper() {
-            if (!mapped) throw "Forgot to map me!";
-        }
-
         template<class...Args>
         constexpr auto to(Args&&... args) requires requires { KeyList{ FWD(args)... }; } {
             def.map_base_pair<strict>(from_list, KeyList{ FWD(args)... });
-            mapped = true;
+            tracker.mapped();
         }
 
         constexpr auto to_single(Key key) {
             def.map_base_pair<strict>(from_list, KeyList<N>{ [=](sz i){ return key; } });
-            mapped = true;
+            tracker.mapped();
         }
     };
 

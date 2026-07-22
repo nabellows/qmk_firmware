@@ -27,7 +27,24 @@ constexpr decltype(auto) invoke_with_each_index(auto f){
     });
 }
 
-struct Void{};
+struct Void{
+    constexpr Void(auto&&...){}
+};
+
+template<class T>
+struct ValWrapper {
+    T val;
+};
+
+template<class T>
+constexpr bool is_val_wrapper_v = false;
+template<class T>
+constexpr bool is_val_wrapper_v<ValWrapper<T>> = true;
+
+template<class T>
+requires is_val_wrapper_v<std::remove_cvref_t<T>>
+constexpr auto&& unwrap(T&& val) { return FWD(val.val); }
+constexpr auto&& unwrap(auto&& val) { return FWD(val); }
 
 template<class=void>
 constexpr bool TFalse = false;
@@ -173,3 +190,45 @@ constexpr bool ce_for_each_val(auto F) {
     };
     return (invoke_as_bool_r.template operator()<vals>() || ...);
 }
+
+namespace detail {
+
+template <
+    class Storage,
+    auto move,
+    bool copyable = true>
+struct MoveWrapperImpl : Storage {
+    constexpr MoveWrapperImpl(auto&&...args) : Storage{ FWD(args)... }{}
+
+    constexpr MoveWrapperImpl(MoveWrapperImpl const&) requires copyable = default;
+    constexpr MoveWrapperImpl& operator=(MoveWrapperImpl const& other) requires copyable = default;
+
+    constexpr MoveWrapperImpl(MoveWrapperImpl&& other) : Storage{ move(unwrap(other)) }{}
+    constexpr MoveWrapperImpl& operator=(MoveWrapperImpl&& other) { static_cast<Storage&>(*this) = move(unwrap(other)); }
+};
+
+} // detail
+
+template<
+    class T,
+    auto move, // Expect an actually modifying function, otherwise this class kinda useless //  = [](auto &&other) { std::move(other); },
+    bool copyable = false,
+    class Storage = std::conditional_t<std::is_class_v<T> && !std::is_final_v<T>,
+        T,
+        ValWrapper<T>
+    >
+>
+using MoveWrapper = detail::MoveWrapperImpl<Storage, move, copyable>;
+
+template<class Derived, bool copyable = false, bool destruct = true>
+struct CrtpMoveWrapper {
+    constexpr CrtpMoveWrapper() = default;
+
+    constexpr CrtpMoveWrapper(CrtpMoveWrapper const&) requires copyable = default;
+    constexpr CrtpMoveWrapper& operator=(CrtpMoveWrapper const& other) requires copyable = default;
+
+    // 'move_out' must actually be mutating otherwise it is completely useless. Also made it a member function so can access privates
+    // Base class presumably already handled default move of actual members, do not cause infinite recursion
+    constexpr CrtpMoveWrapper(CrtpMoveWrapper&& other) { ((Derived&&) other).move_out(); }
+    constexpr CrtpMoveWrapper& operator=(CrtpMoveWrapper&& other) { ((Derived&&) other).move_out(); }
+};

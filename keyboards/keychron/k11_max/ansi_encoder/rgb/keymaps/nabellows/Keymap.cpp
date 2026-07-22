@@ -24,12 +24,13 @@ extern "C" {
 
 } // extern "C"
 
+#define LAYOUT(...) LAYOUT_69_ansi(__VA_ARGS__)
 
 using namespace key_defs;
 
 DEFINE_LAYER(LAYOUT_BASE, {
     set({
-        .matrix = LAYOUT_69_ansi(
+        .matrix = LAYOUT(
             KC_ESC, /**/ KC_1,  KC_2,  KC_3,  KC_4,  KC_5,  KC_6, /**/   KC_7,   KC_8,   KC_9,   KC_0,   KC_MINS, KC_EQL,       /**/KC_BSPC,   /**/   KNOB_PRESS,
             /*------------------------------------------------------------------------------------------------------------------------------------------------*/
             KC_TAB, /**/   KC_Q,   KC_W,   KC_E,   KC_R,   KC_T,  /**/ KC_Y,  KC_U,   KC_I,   KC_O,   KC_P,    KC_LBRC, KC_RBRC,/**/ KC_BSLS,  /**/   KC_DEL,
@@ -43,7 +44,7 @@ DEFINE_LAYER(LAYOUT_BASE, {
 })
 
 DEFINE_LAYER(BASE, {
-    clone();
+    clone_base();
     map_base(FN1, FN2)
         .to(kMO(Layer::FN1), kMO(Layer::FN2));
 
@@ -60,7 +61,7 @@ static_assert(kLayerDef<Layer::BASE>.matrix[2][0] == CTL_ESC);
 
 DEFINE_LAYER(FN1, {
     set({
-        .matrix = LAYOUT_69_ansi(
+        .matrix = LAYOUT(
             _______, _______,  _______,  _______, _______, _______, _______,  _______, _______, _______, _______,  _______,  _______,  _______,          UG_TOGG,
             _______, BT_HST1,  BT_HST2,  BT_HST3, P2P4G,   _______, _______,  _______, _______, _______, _______,  _______,  _______,  _______,          KC_INS,
             UG_TOGG, UG_NEXT,  UG_VALU,  UG_HUEU, UG_SATU, UG_SPDU,           _______, _______, _______, _______,  _______,  _______,  _______,          KC_END,
@@ -92,7 +93,8 @@ DEFINE_LAYER(FN2, {
     use_base(KC_CAPS);
 
     map_base<false>("b").to(BAT_LVL); // b is duplicated so we disable strict mode
-    map_base(KC_BACKSPACE).to(NK_TOGG);
+    map_base(KC_BACKSPACE).to(NK_TOGG); // By default keychron enabled 'APDAPTIVE_NKRO_ENABLE' (typo ik lol), which ignores the config anyway...
+    // leaving it mapped just in case
 
     // Numpad
     map_base(
