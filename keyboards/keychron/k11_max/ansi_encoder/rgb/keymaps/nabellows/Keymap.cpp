@@ -86,7 +86,7 @@ DEFINE_LAYER(FN2, {
     map_base("34").to(KC_MCTRL, KC_LNPAD); // mac keys (but idk if windows uses)
     map_base("56").to(UG_VALD, UG_VALU);
     map_base("789").to(KC_MEDIA_PREV_TRACK, KC_MEDIA_PLAY_PAUSE, KC_MEDIA_NEXT_TRACK);
-    map_base("0-+").to(KC_MUTE, KC_VOLD, KC_VOLU);
+    map_base("0-=").to(KC_MUTE, KC_VOLD, KC_VOLU);
 
     use_base(KC_ESC);
     use_base(KC_CAPS);

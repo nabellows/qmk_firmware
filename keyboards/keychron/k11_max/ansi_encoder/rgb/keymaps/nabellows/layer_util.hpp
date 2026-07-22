@@ -52,6 +52,7 @@ protected:
                 ++index.back();
             }
         });
+        if (strict && !found) throw "Mapping not found in base! (required by strict=true)";
     }
 
     // Guaranteed to point into self. Was considering using std::span as base of operations,
