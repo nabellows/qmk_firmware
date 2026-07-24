@@ -1,17 +1,24 @@
 #pragma once
 
+#include <assert.h>
 #include "compat.hpp"
+#include "common.hpp"
+#include "iterate_view.hpp"
+#include "mapping_iterator.hpp"
+#include "type_list.hpp"
+#include "value_iterator.hpp"
 
 #include <algorithm>
 #include <array>
 #include <concepts>
 #include <cstddef>
+#include <functional>
+#include <iterator>
 #include <optional>
+#include <ranges>
+#include <tuple>
 #include <type_traits>
-
-#define FWD(...) ::std::forward<decltype(__VA_ARGS__)>((__VA_ARGS__))
-
-using sz = size_t;
+#include <variant>
 
 template<sz N>
 constexpr decltype(auto) invoke_with_index_seq(auto f){
@@ -30,11 +37,24 @@ constexpr decltype(auto) invoke_with_each_index(auto f){
 struct Void{
     constexpr Void(auto&&...){}
 };
+constexpr inline Void kVoid;
 
 template<class T>
 struct ValWrapper {
     T val;
 };
+
+template<class T>
+struct Construct {
+    template<class U>
+    constexpr T operator()(U&& value) const
+        noexcept(std::is_nothrow_constructible_v<T, U>)
+    {
+        return T(FWD(value));
+    }
+};
+template<class T>
+inline constexpr Construct<T> fConstruct;
 
 template<class T>
 constexpr bool is_val_wrapper_v = false;
@@ -177,18 +197,46 @@ constexpr auto res = []{
 static_assert(res == std::array<md_index<2>, 9>{{ {0,2}, {1,2}, {2,0}, {2,1} }});
 }
 
-// Individual iterations return true to short circuit (final return value is if any return true)
+template<class F, class...A>
+constexpr decltype(auto) voidless_invoke(F&& f, A&&...args) {
+    if constexpr (std::is_same_v<void, std::invoke_result_t<F&&, A...>>) {
+        FWD(f)(FWD(args)...);
+        return kVoid;
+    } else {
+        return FWD(f)(FWD(args)...);
+    }
+}
+
 template<auto...vals>
-constexpr bool ce_for_each_val(auto F) {
-    auto invoke_as_bool_r = [&]<auto val>()->decltype(auto){
-        if constexpr (std::is_same_v<void, decltype(F.template operator()<val>())>) {
-            F.template operator()<val>();
-            return false;
+constexpr decltype(auto) tinvoke_nttp(auto&& f, auto&&...args) requires requires { FWD(f).template operator()<vals...>(FWD(args)...); } {
+    return voidless_invoke([&f, &args...]{ return FWD(f).template operator()<vals...>(FWD(args)...); });
+}
+
+template<class... Ts>
+concept AllSame =
+    sizeof...(Ts) == 0 ||
+    (std::same_as<std::tuple_element_t<0, std::tuple<Ts...>>, Ts> && ...);
+
+template<auto...vals, class Proj = std::identity>
+constexpr auto ce_for_each_val(auto F, Proj proj = {}) {
+    struct LoopState {
+        void Break() { m_break = true; }
+    private:
+        bool m_break = false;
+        int i = 0;
+    } state;
+    auto invoke = [&]<auto val>() {
+        if constexpr (requires { tinvoke_nttp<val>(F, state); }) {
+            return proj(tinvoke_nttp<val>(F, state));
         } else {
-            return F.template operator()<val>();
+            return proj(tinvoke_nttp<val>(F));
         }
     };
-    return (invoke_as_bool_r.template operator()<vals>() || ...);
+    if constexpr (AllSame<decltype(tinvoke_nttp<vals>(invoke))...>) {
+        return std::array{ tinvoke_nttp<vals>(invoke)... };
+    } else {
+        return std::tuple{ tinvoke_nttp<vals>(invoke)... };
+    }
 }
 
 namespace detail {
@@ -208,7 +256,6 @@ struct MoveWrapperImpl : Storage {
 };
 
 } // detail
-
 template<
     class T,
     auto move, // Expect an actually modifying function, otherwise this class kinda useless //  = [](auto &&other) { std::move(other); },
@@ -232,3 +279,41 @@ struct CrtpMoveWrapper {
     constexpr CrtpMoveWrapper(CrtpMoveWrapper&& other) { ((Derived&&) other).move_out(); }
     constexpr CrtpMoveWrapper& operator=(CrtpMoveWrapper&& other) { ((Derived&&) other).move_out(); }
 };
+
+template<class T, class It>
+constexpr auto map_iterator(It&& it) {
+    return MappingIterator<T, std::remove_cvref_t<It>>{ it };
+}
+
+template<class To, class From>
+constexpr auto map_val_iterator(From&& val) {
+    return MappingIterator<To, ValueIterator<std::remove_cvref_t<From>>>{ val };
+}
+
+template<class...Ts>
+using DedupVariant = TypeList<Ts...>::template uniq<>::template apply_to<std::variant>;
+
+static_assert(std::same_as<std::variant<int, double, short>, DedupVariant<int, double, int, short, double, short, int>>);
+
+template<class...Ts>
+constexpr auto to_variant_array(std::tuple<Ts...> const& tup) {
+    std::tuple_element<0, std::tuple<int>>::type a;
+    constexpr sz N = sizeof...(Ts);
+    return invoke_with_index_seq<N>([&]<sz...is>{
+        return std::array<DedupVariant<Ts...>, N>{ std::get<is>(tup)... };
+    });
+}
+
+template<class T>
+constexpr auto repeat_view(T&& val) {
+    return iterate_view{
+        std::remove_cvref_t<T>(FWD(val)),
+        [](auto&){}
+    };
+    // return std::views::iota(0) | std::views::transform([val_copy = FWD(val)](int){ return val_copy; });
+}
+
+//TODO: dope pattern that would have helped in layer_util (though compile times...), would have been a view which can handle elems of Variant<Range1, Range2> etc, which all are
+// ranges returning T, and then spawn a new view which is basically concat_view_n, unvariant-ing them
+
+

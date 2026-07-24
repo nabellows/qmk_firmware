@@ -4,8 +4,12 @@
 #include "keycodes.h"
 #include "quantum_keycodes.h"
 #include "util.hpp"
+#include "value_iterator.hpp"
 
 #include <array>
+#include <concepts>
+#include <iterator>
+#include <ranges>
 #include <span>
 #include <string_view>
 #include <utility>
@@ -98,6 +102,21 @@ static_assert(char_to_key('$') == KC_DOLLAR);
 static_assert(Key('0').to_char() == '0');
 static_assert(Key('0') == KC_0);
 
+template<class R>
+concept KeyInputRange =
+    std::ranges::input_range<R> &&
+    std::constructible_from<
+        Key,
+        std::ranges::range_reference_t<R>
+    >;
+
+template<class R>
+concept KeyOutputRange =
+    std::ranges::range<R> &&
+    requires(std::ranges::iterator_t<R> it, Key key) {
+        *it = key;
+    };
+
 template<sz N>
 struct KeyList : std::array<Key, N> {
     using Arr = std::array<Key, N>;
@@ -112,43 +131,80 @@ struct KeyList : std::array<Key, N> {
 
     constexpr static sz size() { return N; }
 };
+static_assert(KeyInputRange<KeyList<10>>);
+static_assert(KeyOutputRange<KeyList<3>>);
+static_assert(!KeyOutputRange<const KeyList<9>>);
+static_assert(KeyInputRange<const KeyList<9>>);
+
 template<sz N>
 KeyList(const char (&str)[N]) -> KeyList<N-1>;
 template<class...Keys>
 requires (std::convertible_to<Keys, Key> && ...)
 KeyList(Keys...) -> KeyList<sizeof...(Keys)>;
 
-template<sz N = std::dynamic_extent>
-struct KeyRange {
-    Key first, last;
-    constexpr sz size() const { return last.to_qmk() - first.to_qmk() + 1;}
-    constexpr Key operator[](sz i) const { return first.to_qmk() + i; }
+template<class T>
+inline constexpr bool kIsKeyList = false;
+template<sz N>
+inline constexpr bool kIsKeyList<KeyList<N>> = true;
 
-    constexpr KeyList<N> to_list() const requires(N != std::dynamic_extent) {
-        if (size() != N) throw "Invalid fixed key range (size mismatch)";
-        return [&](sz i){ return first.to_qmk() + i; };
+template<class...Ts>
+concept KeyListish = requires { KeyList{ std::declval<Ts>()... }; };
+static_assert(KeyListish<qk_keycode_defines>);
+
+struct InfiniteKeyRange {
+    constexpr InfiniteKeyRange(Key first): first{ first } {}
+    constexpr Key operator[](sz i) const { return first + i; }
+
+    constexpr auto begin() const { return map_val_iterator<Key>(first); }
+    constexpr auto end() const { return std::unreachable_sentinel; }
+protected:
+    qmk_key_t first; // use raw key since it is handled by iterator better
+};
+static_assert(std::ranges::random_access_range<InfiniteKeyRange>);
+
+template<sz N = std::dynamic_extent>
+class KeyRange : public InfiniteKeyRange {
+    sz len;
+    constexpr void validate_size() const {
+        if constexpr (is_fixed_size) {
+            if (size() != N)
+                throw "Invalid fixed key range (size mismatch)";
+        }
     }
-    constexpr operator KeyList<N>() const requires(N != std::dynamic_extent) { return to_list(); }
+public:
+    constexpr KeyRange(Key first, sz len) : InfiniteKeyRange{ first }, len{ len } { validate_size(); }
+    constexpr KeyRange(Key first, Key last) : KeyRange(first, last-first+1) { if (last < first) throw "Invalid KeyRange"; }
+    constexpr KeyRange(const KeyRange& other) : InfiniteKeyRange{ other }, len{ other.len } { validate_size(); }
+
+    constexpr KeyRange& operator=(const KeyRange& other) {
+        first = other.first;
+        len = other.len;
+        validate_size();
+        return *this;
+    }
+
+    constexpr static bool is_fixed_size = N != std::dynamic_extent;
+
+    constexpr sz size() const { return len; }
+
+    constexpr auto end() const { return map_val_iterator<Key>(qmk_key_t(first + len)); }
+
+    constexpr KeyList<N> to_list() const requires (is_fixed_size) {
+        return [&](sz i){ return first + i; };
+    }
+    constexpr operator KeyList<N>() const requires(is_fixed_size) { return to_list(); }
+
     template<sz M>
     constexpr KeyList<M> to_list() const {
-        if (size() != M) throw "Invalid fixed key range (size mismatch)";
-        return [&](sz i){ return first.to_qmk() + i; };
+        if (size() < M) throw "Invalid fixed key range (size mismatch)";
+        return [&](sz i){ return first + i; };
     }
     template<sz M>
     constexpr operator KeyList<M>() const { return to_list<M>(); }
 };
+static_assert(std::ranges::random_access_range<KeyRange<std::dynamic_extent>>);
+
 template<Key first, Key last>
 constexpr KeyRange<last.to_qmk() - first.to_qmk() + 1> kKeyRange = { first, last };
 
-template<class T>
-constexpr static bool kKeyListish = requires (T const& t){ KeyList(t); };
 
-namespace key_defs {
-
-template<int N>
-constexpr Key F = Key(qmk_key_t(KC_F1 + N - 1));
-constexpr KeyList arrows_hjkl = { KC_LEFT, KC_DOWN, KC_UP, KC_RIGHT };
-template<int first, int last>
-constexpr auto f_keys = kKeyRange<KC_F1 + first-1, KC_F1 + last-1>;
-
-}

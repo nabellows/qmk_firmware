@@ -18,6 +18,7 @@
 - Custom function to restore certain things as firmware-default eprom settings like snap-tap a/d? 
 - Use magic or other to actually implement toggle for invasive keymaps and/or a normie layer like for gaming (make caps lock caps lock again, no interruption to shift and others?)
 - A key to put caps word into super sticky mode where stuff like comma does not interrupt. I guess thats not caps word no more, but shift space...
+- Move lots of constexpr to inline constexpr (for globals that arent meant to actually extern)
 
 ## Other
 - GUI which-key helper of some kind would be wild, probably just a wrapper around launcher/via

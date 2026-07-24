@@ -6,6 +6,7 @@
 #include "keys.hpp"
 #include "layer_util.hpp"
 #include "layers.hpp"
+#include "report.h"
 #include "util.hpp"
 
 extern "C" {
@@ -43,19 +44,31 @@ DEFINE_LAYER(LAYOUT_BASE, {
     });
 })
 
-DEFINE_LAYER(BASE, {
+static_assert(std::ranges::distance(repeat_view(1) | std::views::take(3)) == 3);
+
+
+DEFINE_LAYER(NORMIE, {
     clone_base();
+
+    // TODO: my vision for this was making it basically the keychron defaults, so make fn1 f-keys and fn2 special keys (vol, etc), without much in the alphabet keys
+    // But, I dont really want to add two whole layers for it... Perhaps possible with key overrides
+    // Even normies need a way to type esc, f-keys, etc
+    map_base(KC_ESC).to(KC_GRV);
+    map_base(LSPACE, RSPACE)
+        .to_single(KC_SPACE);
+    map_base(FN1, FN2)
+        .to(kMO(Layer::FN1), kMO(Layer::FN2));
+    map_base(KNOB_PRESS, KNOB_CCW, KNOB_CW)
+        .to(KC_MUTE, KC_VOLD, KC_VOLU);
+})
+
+DEFINE_LAYER(BASE, {
+    clone<Layer::NORMIE>(); // could use trans(), but we are going to make this a base layer rather than toggle on, so NORMIE will be disabled when this is active (could go the toggle route...)
     map_base(FN1, FN2)
         .to(kMO(Layer::FN1), kMO(Layer::FN2));
 
     map_base(KC_CAPS).to(CTL_ESC);
-    map_base(KC_ESC).to(KC_GRV);
-
     map_base(LSPACE).to(GUI_SPC);
-    map_base(RSPACE).to(KC_SPACE);
-
-    map_base(KNOB_PRESS, KNOB_CCW, KNOB_CW)
-        .to(KC_MUTE, KC_VOLD, KC_VOLU);
 })
 static_assert(kLayerDef<Layer::BASE>.matrix[2][0] == CTL_ESC);
 
@@ -70,17 +83,21 @@ DEFINE_LAYER(FN1, {
         ),
         .encoder_map = ENCODER_CCW_CW(UG_VALD, UG_VALU),
     });
-    map_base(LSPACE, RSPACE).to_single(QK_LAYER_LOCK);
+    // map_base(LSPACE, RSPACE).to_single(QK_LAYER_LOCK); // fat fingered fn1+space in arena and got molested.
+    map_base(KC_LGUI, RSPACE).to_single(QK_LAYER_LOCK); // fat fingered fn1+space in arena and got molested.
 
     map_base_span("1=").to(f_keys<1, 12>);
     map_base("hjkl").to(arrows_hjkl);
 
     use_base(KC_ESC);
 })
+static_assert(kLayerDef<Layer::FN1>.matrix[0][3] == KC_F3);
+
 
 //TODO: perhaps some double tap fn1 fn2 keys to toggle the layer instead of one-shot (with timeout? gets unset if pressed once? )
 DEFINE_LAYER(FN2, {
     trans();
+    // TODO: this is a bit problematic tbh, might be better with a true numkey-only layer
     map_base(LSPACE, RSPACE).to_single(QK_LAYER_LOCK);
 
     map_base("12").to(KC_BRID, KC_BRIU);
@@ -92,6 +109,7 @@ DEFINE_LAYER(FN2, {
     use_base(KC_ESC);
     use_base(KC_CAPS);
 
+    //TODO: fix, seems like only left one mapped
     map_base<false>("b").to(BAT_LVL); // b is duplicated so we disable strict mode
     map_base(KC_BACKSPACE).to(NK_TOGG); // By default keychron enabled 'APDAPTIVE_NKRO_ENABLE' (typo ik lol), which ignores the config anyway...
     // leaving it mapped just in case
@@ -109,6 +127,19 @@ DEFINE_LAYER(FN2, {
 
     // TODO: interface like this? I guess you could default-init matrix and then still designate init the encoder
     // encoder_map = ENCODER_CCW_CW(UG_VALD, UG_VALU);
+})
+
+DEFINE_LAYER(MOUSE, {
+    fill(KC_NO);
+    using key_defs::mouse_buttons;
+    map_base_span("18").to(mouse_buttons<>);
+    map_base(LSPACE, KC_ENTER).to_single(MS_BTN1);
+    map_base(RSPACE).to_single(MS_BTN2);
+
+    map_base("qe").to(mouse_buttons<1, 2>);
+
+    map_base("hjkl").to(mouse_hjkl);
+    map_base("wasd").to(mouse_wasd);
 })
 
 extern "C" {

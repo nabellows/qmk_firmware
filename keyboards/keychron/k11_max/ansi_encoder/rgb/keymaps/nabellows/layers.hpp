@@ -11,9 +11,11 @@ extern "C" {
 constexpr layer_state_t kAllLayers = ~0;
 
 enum class Layer : layer_state_t {
-    BASE, MAC_BASE = BASE, WIN_BASE = BASE,
+    NORMIE, WIN_BASE = NORMIE,
+    BASE, MAC_BASE = BASE,
     FN1,
     FN2,
+    MOUSE,
 
     LAYER_ENUM_END,
     LAYOUT_BASE, // Hack to set non-qmk codes - doesnt get translated into a real layer (at least not by default, can clone)
