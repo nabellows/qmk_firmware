@@ -17,15 +17,16 @@
 template<Layer layer>
 struct LayerDef;
 template<Layer layer>
-constexpr LayerDef<layer> kLayerDef;
+constexpr inline LayerDef<layer> kLayerDef;
 
-#define DEFINE_LAYER(layer, ...) template<> struct LayerDef<Layer::layer> : LayerDefBase<> { constexpr static bool exists() { return true; } consteval LayerDef() __VA_ARGS__ }; static_assert(kLayerDef<Layer::layer>.exists());
+#define DEFINE_LAYER(layer, ...) template<> struct LayerDef<Layer::layer> : LayerDefImpl<Layer::layer> { constexpr static bool exists() { return true; } consteval LayerDef() __VA_ARGS__ }; static_assert(kLayerDef<Layer::layer>.exists());
 
-template<auto layer_base = Layer::LAYOUT_BASE> // Avoid any direct instantiations of the base-def
+template<auto layer_base_ = Layer::LAYOUT_BASE> // Avoid any direct instantiations of the base-def
 struct LayerDefBase {
+    constexpr static Layer layer_base = layer_base_;
     Key matrix[MATRIX_ROWS][MATRIX_COLS];
 #ifdef ENCODER_MAP_ENABLE
-	Key encoder_map[NUM_ENCODERS][NUM_DIRECTIONS];
+    Key encoder_map[NUM_ENCODERS][NUM_DIRECTIONS];
 #else
     std::array<std::array<Key, 0>, 0> encoder_map{};
 #endif
@@ -153,6 +154,7 @@ protected:
         map_range_impl<strict>(to_src_range(FWD(to)), to_dst_range_from_base<strict>(FWD(from)));
     }
 
+    // Base span barely helpful anymore... only thing it carries is info regarding the index range/visual nature.... remove?
     // Guaranteed to point into self. Was considering using std::span as base of operations,
     // but technically UB/not constexpr to do pointer range checks to see for example,
     // what member it is from (or if its an arbitrary collection of Keys)
@@ -277,8 +279,15 @@ protected:
     }
 };
 
+template<Layer layer_self_>
+struct LayerDefImpl : LayerDefBase<> {
+    constexpr static Layer layer_self = layer_self_;
+protected:
+    constexpr Key toggle_this_layer() { return kTG(layer_self); }
+};
+
 template<Layer layer>
-struct LayerDef : LayerDefBase<> {
+struct LayerDef : LayerDefImpl<layer> {
     static_assert(VFalse<layer>, "Layer definition not found!");
     constexpr static bool exists() { return false; }
 };
