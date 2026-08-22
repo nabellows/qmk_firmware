@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include "compat.hpp"
 
 #include "caps_word.hpp"
@@ -95,5 +96,18 @@ bool rgb_matrix_indicators_user() {
     return true;
 }
 
+uint16_t get_tapping_term(qmk_key_t keycode, keyrecord_t *record) {
+    switch (keycode) {
+        case GUI_SPC:
+            return UINT16_MAX;
+        default:
+            break;
+    }
+#ifdef DYNAMIC_TAPPING_TERM_ENABLE
+    return g_tapping_term;
+#else
+    return TAPPING_TERM;
+#endif
 }
 
+}
