@@ -9,6 +9,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "info_config.h"
 #include "key_util.hpp"
 #include "keycodes.h"
 #include "layers.hpp"
@@ -24,9 +25,9 @@ constexpr inline LayerDef<layer> kLayerDef;
 template<auto layer_base_ = Layer::LAYOUT_BASE> // Avoid any direct instantiations of the base-def
 struct LayerDefBase {
     constexpr static Layer layer_base = layer_base_;
-    Key matrix[MATRIX_ROWS][MATRIX_COLS];
+    Matrix<Key, MATRIX_ROWS, MATRIX_COLS> matrix;
 #ifdef ENCODER_MAP_ENABLE
-    Key encoder_map[NUM_ENCODERS][NUM_DIRECTIONS];
+    Matrix<Key, NUM_ENCODERS, NUM_DIRECTIONS> encoder_map;
 #else
     std::array<std::array<Key, 0>, 0> encoder_map{};
 #endif

@@ -16,6 +16,7 @@
 #include <iterator>
 #include <optional>
 #include <ranges>
+#include <span>
 #include <tuple>
 #include <type_traits>
 #include <variant>
@@ -74,6 +75,9 @@ constexpr bool TFalse = false;
 template<auto=0>
 constexpr bool VFalse = false;
 
+template<class T, sz rows, sz cols>
+using Matrix = std::array<std::array<T, cols>, rows>;
+
 template<class T>
 struct remove_extents {
     using type = std::remove_all_extents_t<T>;
@@ -87,48 +91,56 @@ struct remove_extents<std::array<T, N>> {
     using type = remove_extents_t<T>;
 };
 
+template<class T, sz N>
+struct remove_extents<std::array<T, N>&> {
+    using type = remove_extents_t<T>;
+};
+
+template<class T>
+using span_t = decltype(std::span{std::declval<T&>()});
+
+template<class T>
+concept FixedSpan = requires(T& value) {
+    std::span{value};
+    requires span_t<T>::extent != std::dynamic_extent;
+};
+
 template<class S, class D>
 requires std::is_assignable_v<D&, S>
 constexpr void ce_copy(S const& src, D& dst) {
     dst = src;
 }
 
-template<class S, class D, sz N>
-requires std::is_assignable_v<remove_extents_t<D>&, remove_extents_t<S>>
-constexpr void ce_copy(S const (&src)[N], D (&dst)[N]) {
-    for (sz i = 0; i < N; ++i) {
-        ce_copy(src[i], dst[i]);
+template<FixedSpan S, FixedSpan D>
+requires(not std::is_assignable_v<D&, S>
+    && span_t<S>::extent == span_t<D>::extent
+    && std::is_assignable_v<remove_extents_t<D>&, remove_extents_t<S>>)
+constexpr void ce_copy(S const &src, D &dst) {
+    if constexpr (FixedSpan<std::remove_cvref_t<S>>) {
+        auto src_span = std::span{src};
+        auto dst_span = std::span{dst};
+        static_assert(src_span.extent == dst_span.extent);
+        for (sz i = 0; i < src_span.extent; ++i) ce_copy(src_span[i], dst_span[i]);
+    } else {
+        dst = src;
     }
 }
 
-static_assert(std::same_as<remove_extents_t<std::array<std::array<int, 3>, 2>>, int>);
+static_assert(std::same_as<remove_extents_t<Matrix<int, 2, 3>>, int>);
+static_assert(std::is_assignable_v<remove_extents_t<Matrix<int, 3, 5>>&, remove_extents_t<int[3][5]>>);
 
-namespace detail {
-template<sz N, class V>
-constexpr void ce_fill_(V const& val, auto& dst);
-}
-
-template<class T, sz N, class V>
-requires std::is_assignable_v<remove_extents_t<T>&, V const&>
-constexpr void ce_fill(V const& val, T (&dst)[N]) { detail::ce_fill_<N>(val, dst); }
-
-template<class T, sz N, class V>
-requires std::is_assignable_v<remove_extents_t<T>&, V const&>
-constexpr void ce_fill(V const& val, std::array<T, N>& dst) { detail::ce_fill_<N>(val, dst); }
-
-namespace detail {
-template<sz N, class V>
-constexpr void ce_fill_(V const& val, auto& dst) {
-    for (sz i = 0; i < N; ++i) {
-        if constexpr (std::is_assignable_v<decltype(dst[i]), V const&>) {
-            dst[i] = val;
+template<class Arr, class V>
+requires FixedSpan<std::remove_cvref_t<Arr>>
+    && std::is_assignable_v<remove_extents_t<std::remove_cvref_t<Arr>>&, V const&>
+constexpr void ce_fill(V const& val, Arr& dst) {
+    for (auto& element : dst) {
+        if constexpr (std::is_assignable_v<decltype(element), V const&>) {
+            element = val;
         } else {
-            ::ce_fill(val, dst[i]);
+            ce_fill(val, element);
         }
     }
 }
-}
-
 
 template<sz N>
 using md_sz = std::conditional_t<N == 1, sz, std::array<sz, N>>;
@@ -137,47 +149,66 @@ using md_index = md_sz<N>;
 
 namespace detail {
 
+template<class T>
+constexpr sz array_rank = [] {
+    using Arr = std::remove_cvref_t<T>;
+    if constexpr (FixedSpan<Arr>) {
+        return sz{1} + array_rank<typename span_t<Arr>::element_type>;
+    } else {
+        return sz{0};
+    }
+}();
+
+template<sz Rank>
+constexpr sz& index_at(md_sz<Rank>& indices, sz depth) {
+    if constexpr (Rank == 1) return indices;
+    else return indices[depth];
+}
+
 template<class Arr, class V, sz Rank>
 constexpr bool index_of_impl(
     Arr const& arr,
     V const& value,
-    std::array<sz, Rank>& indices,
+    md_sz<Rank>& indices,
     sz depth
 ) {
-    for (auto& i = indices[depth]; i < std::extent_v<Arr>; ++i) {
-        using Element = std::remove_reference_t<decltype(arr[i])>;
-        if constexpr (std::is_array_v<Element>) {
-            if (index_of_impl(arr[i], value, indices, depth + 1)) return true;
+    auto span = std::span{arr};
+    for (auto& i = index_at<Rank>(indices, depth); i < span.extent; ++i) {
+        using Element = std::remove_cvref_t<decltype(span[i])>;
+        if constexpr (array_rank<Element> != 0) {
+            if (index_of_impl<decltype(span[i]), V, Rank>(span[i], value, indices, depth + 1)) return true;
         } else {
-            if (arr[i] == value) return true;
+            if (span[i] == value) return true;
         }
     }
-    indices[depth] = 0;
+    index_at<Rank>(indices, depth) = 0;
     return false;
 }
 
 template<class T>
 struct IndexType;
 
-template<class T, sz N>
-struct IndexType<T[N]> {
-    using type = md_sz<std::rank_v<T[N]>>;
+template<FixedSpan T>
+struct IndexType<T> {
+    using type = md_sz<array_rank<T>>;
 };
 
 } // namespace detail
 
 //TODO: technically we want one with operator++ and a way to apply(array)
 template<class T>
-using index_t = detail::IndexType<T>::type;
+using index_t = detail::IndexType<std::remove_cvref_t<T>>::type;
 
-template<class T, sz N, class V>
-constexpr bool index_of(T const (&arr)[N], V const& value, index_t<T[N]>& indices) {
-    return detail::index_of_impl(arr, value, indices, 0);
+template<class Arr, class V>
+requires FixedSpan<std::remove_cvref_t<Arr>>
+constexpr bool index_of(Arr const& arr, V const& value, index_t<Arr>& indices) {
+    return detail::index_of_impl<Arr, V, detail::array_rank<std::remove_cvref_t<Arr>>>(arr, value, indices, 0);
 }
 
-template<class T, sz N, class V>
-constexpr std::optional<index_t<T[N]>> index_of(T const (&arr)[N], V const& value) {
-    index_t<T[N]> indices{};
+template<class Arr, class V>
+requires FixedSpan<std::remove_cvref_t<Arr>>
+constexpr std::optional<index_t<Arr>> index_of(Arr const& arr, V const& value) {
+    index_t<Arr> indices{};
     if (index_of(arr, value, indices)) {
         return indices;
     }
@@ -188,7 +219,7 @@ namespace util_test {
 constexpr auto res = []{
     int arr[3][3] = { { 1, 2, 3 }, { 1, 4, 3 }, { 3, 3, 9 } };
     md_index<2> index{};
-    std::array<md_index<2>, 9> res{};
+    std::array<md_index<2>, sizeof(arr)/sizeof(int)> res{};
     int i = 0;
     while (index_of(arr, 3, index)) {
         res[i++] = index;
@@ -355,5 +386,3 @@ constexpr auto infinite_range(R&& r)
 
 //TODO: dope pattern that would have helped in layer_util (though compile times...), would have been a view which can handle elems of Variant<Range1, Range2> etc, which all are
 // ranges returning T, and then spawn a new view which is basically concat_view_n, unvariant-ing them
-
-

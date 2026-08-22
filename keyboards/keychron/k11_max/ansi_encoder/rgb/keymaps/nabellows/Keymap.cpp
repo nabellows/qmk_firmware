@@ -25,7 +25,7 @@ extern "C" {
 
 } // extern "C"
 
-#define LAYOUT(...) LAYOUT_69_ansi(__VA_ARGS__)
+#define LAYOUT(...) { LAYOUT_69_ansi(__VA_ARGS__) } // std::array friendly
 
 using namespace key_defs;
 
