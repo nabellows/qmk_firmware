@@ -1,10 +1,16 @@
 #include "compat.hpp"
 
-#include "action.h"
 #include "caps_word.hpp"
 #include "key_util.hpp"
 #include "keys.hpp"
+
+extern "C" {
+#include "action.h"
+#include "caps_word.h"
+#include "keycodes.h"
 #include "layers.hpp"
+#include "rgb_matrix.h"
+}
 
 struct OsState {
     enum Value { MAC, WIN };
@@ -62,10 +68,29 @@ void keyboard_post_init_user() {
 #endif
 }
 
+static qmk_key_t shift_state = 0;
+
 // clang-format on
 bool process_record_user(qmk_key_t keycode, keyrecord_t *record) {
+    switch (keycode) {
+        case KC_LSFT:
+        case KC_RSFT:
+            shift_state ^= keycode;
+            if (shift_state == (KC_LSFT ^ KC_RSFT)) {
+                caps_word_toggle();
+            }
+            break;
+    }
     if (!process_record_keychron_common(keycode, record)) {
         return false;
+    }
+    return true;
+}
+
+bool rgb_matrix_indicators_user() {
+    if (is_caps_word_on()) {
+        //FIXME: with effects like raindrops, takes a bit to reset the colors, any way to save/pause and resume state?
+        rgb_matrix_set_color_all(RGB_WHITE);
     }
     return true;
 }

@@ -48,6 +48,7 @@ QMK_INLINE bool caps_word_press_user(qmk_key_t keycode) {
             return false;  // Deactivate Caps Word.
     }
 }
+
 QMK_INLINE void caps_word_set_user(bool active) {
     caps_word::enable_shift_space_underscore = active;
 }
