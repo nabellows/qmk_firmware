@@ -67,13 +67,13 @@ protected:
             ce_for_each_val<&LayerDefBase::matrix, &LayerDefBase::encoder_map>([&]<auto member>{
                 Index index{};
                 while (index_of(kLayerDef<layer_base>.*member, key, index)) {
-                    if (res) throw "Ambiguous mapping";
+                    if (res) constexpr_fail("Ambiguous mapping");
                     auto [row, col] = index;
                     ++index.back();
                     res = &(this->*member)[row][col];
                 }
             });
-            if (strict && !res) throw "Mapping not found in base! (required by strict=true)";
+            if (strict && !res) constexpr_fail("Mapping not found in base! (required by strict=true)");
             return std::span(res, res ? 1 : 0);
         } else { // This version inevitably a bit worse on performance
             bool found = false;
@@ -95,7 +95,7 @@ protected:
                 }
                 return positions_to_view(this->*member, positions);
             });
-            if (strict && !found) throw "Mapping not found in base! (required by strict=true)";
+            if (strict && !found) constexpr_fail("Mapping not found in base! (required by strict=true)");
             return concat_view{ matrix_view, encoder_view };
         }
     }
@@ -114,7 +114,7 @@ private:
         auto dst_end = std::ranges::end(dst_r);
         constexpr bool infinite_src = std::is_same_v<std::unreachable_sentinel_t, decltype(src_end)>;
         constexpr bool infinite_dst = std::is_same_v<std::unreachable_sentinel_t, decltype(dst_end)>;
-        if (infinite_src && infinite_dst) throw "Error: Both mapping source/destination ranges are infinite";
+        if (infinite_src && infinite_dst) constexpr_fail("Error: Both mapping source/destination ranges are infinite");
 
         while (src != src_end && dst != dst_end) {
             *dst = static_cast<Key>(*src);
@@ -124,8 +124,8 @@ private:
         const bool src_finished = infinite_src || src == src_end;
         const bool dst_finished = infinite_dst || dst == dst_end;
 
-        if (strict && !dst_finished) throw "Did not map all keys in destination (source/new-keys range is shorter than destination/base-keys)";
-        if (strict && !src_finished) throw "Not all source keys were mapped (source/new-keys range is longer than destination/base-keys)";
+        if (strict && !dst_finished) constexpr_fail("Did not map all keys in destination (source/new-keys range is shorter than destination/base-keys)");
+        if (strict && !src_finished) constexpr_fail("Not all source keys were mapped (source/new-keys range is longer than destination/base-keys)");
     }
 
     constexpr static auto&& common_cast(KeyInputRange auto&& x) { return FWD(x); }
@@ -167,7 +167,7 @@ protected:
         constexpr sz size() const { return num_keys; }
 
         constexpr KeySpan(LayerDefBase& self, auto member, sz from_row, sz from_col, sz to_row, sz to_col) {
-            if (from_row > to_row || from_col > to_col) throw "Invalid Key Span (negative direction)";
+            if (from_row > to_row || from_col > to_col) constexpr_fail("Invalid Key Span (negative direction)");
             base_data = &(kLayerDef<layer_base>.*member)[from_row][from_col];
             data = &(self.*member)[from_row][from_col];
             raw_size = &(self.*member)[to_row][to_col] - data + sz(1);
@@ -212,16 +212,16 @@ protected:
             auto& ref = kLayerDef<layer_base>.*member;
             auto from_index = index_of(ref, from);
             auto to_index = index_of(ref, to);
-            if (from_index.has_value() != to_index.has_value()) throw "Bad span, base matrix/map contains one key and not the other";
+            if (from_index.has_value() != to_index.has_value()) constexpr_fail("Bad span, base matrix/map contains one key and not the other");
             if (from_index) {
                 auto [from_row, from_col] = *from_index;
                 auto [to_row, to_col] = *to_index;
-                if (from_row != to_row) throw "Bad span: Span must lie in a single row"; // Unsure if this is preferred
-                if (res) throw "Ambiguous span";
+                if (from_row != to_row) constexpr_fail("Bad span: Span must lie in a single row"); // Unsure if this is preferred
+                if (res) constexpr_fail("Ambiguous span");
                 res = KeySpan(*this, member, from_row, from_col, to_row, to_col);
             }
         });
-        if (!res) throw "Could not find matching span";
+        if (!res) constexpr_fail("Could not find matching span");
         return *res;
     }
 
@@ -239,7 +239,7 @@ protected:
         constexpr MappingTracker() = default;
         constexpr MappingTracker(MappingTracker&&) = default;
         constexpr ~MappingTracker() {
-            if (needs_map) throw "Forgot to map me!";
+            if (needs_map) constexpr_fail("Forgot to map me!");
         }
         constexpr bool mapped(bool val = true) { return needs_map = !val; }
         constexpr void move_out() { needs_map = false; }

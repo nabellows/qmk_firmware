@@ -53,7 +53,7 @@ constexpr qmk_key_t char_to_key(char c) {
     i = shifted_char_keys.find(c);
     if (i != std::string_view::npos) return S(keys[i]);
 
-    throw "char not supported for char_to_key";
+    constexpr_fail("char not supported for char_to_key");
 }
 
 constexpr char key_to_char(qmk_key_t k) {
@@ -67,7 +67,7 @@ constexpr char key_to_char(qmk_key_t k) {
         if (k == keys[i]) return unshifted_char_keys[i];
         if (k == S(keys[i])) return shifted_char_keys[i];
     }
-    throw "key not supported by key_to_char";
+    constexpr_fail("key not supported by key_to_char");
 }
 
 struct Key {
@@ -168,12 +168,12 @@ class KeyRange : public InfiniteKeyRange {
     constexpr void validate_size() const {
         if constexpr (is_fixed_size) {
             if (size() != N)
-                throw "Invalid fixed key range (size mismatch)";
+                constexpr_fail("Invalid fixed key range (size mismatch)");
         }
     }
 public:
     constexpr KeyRange(Key first, sz len) : InfiniteKeyRange{ first }, len{ len } { validate_size(); }
-    constexpr KeyRange(Key first, Key last) : KeyRange(first, last-first+1) { if (last < first) throw "Invalid KeyRange"; }
+    constexpr KeyRange(Key first, Key last) : KeyRange(first, last-first+1) { if (last < first) constexpr_fail("Invalid KeyRange"); }
     constexpr KeyRange(const KeyRange& other) : InfiniteKeyRange{ other }, len{ other.len } { validate_size(); }
 
     constexpr KeyRange& operator=(const KeyRange& other) {
@@ -196,7 +196,7 @@ public:
 
     template<sz M>
     constexpr KeyList<M> to_list() const {
-        if (size() < M) throw "Invalid fixed key range (size mismatch)";
+        if (size() < M) constexpr_fail("Invalid fixed key range (size mismatch)");
         return [&](sz i){ return first + i; };
     }
     template<sz M>

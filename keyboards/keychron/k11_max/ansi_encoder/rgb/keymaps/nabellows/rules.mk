@@ -9,7 +9,7 @@ OPT_DEFS += -DWIRELESS_RAW_ENABLE
 
 KEYMAP_INTROSPECTION = no
 
-CXXFLAGS += -fconcepts-diagnostics-depth=3
+CXXFLAGS += -fconcepts-diagnostics-depth=3 -fno-exceptions
 
 EXTRAINCDIRS += $(KEYMAP_PATH)/util
 

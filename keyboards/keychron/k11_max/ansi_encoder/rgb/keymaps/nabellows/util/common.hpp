@@ -20,3 +20,12 @@ struct NTTP {
 
 template<sz S>
 struct Sz : std::integral_constant<sz, S> {};
+
+// Worst case we have to do nothing!
+// TODO: could turn all the lights red...
+constexpr void constexpr_fail(
+    const char* msg,
+    char = std::is_constant_evaluated()
+        ? *static_cast<volatile char*>(nullptr)
+        : 0)
+{}
