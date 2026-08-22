@@ -115,10 +115,7 @@ DEFINE_LAYER(FN2, {
     use_base(KC_ESC);
     use_base(KC_CAPS);
 
-    //TODO: fix, seems like only left one mapped
-    map_base<false>("b").to(BAT_LVL); // b is duplicated so we disable strict mode
-    map_base(KC_BACKSPACE).to(NK_TOGG); // By default keychron enabled 'APDAPTIVE_NKRO_ENABLE' (typo ik lol), which ignores the config anyway...
-    // leaving it mapped just in case
+    map_base<false>("b").to_single(BAT_LVL); // b is duplicated so we disable strict mode
 
     // Numpad
     map_base(
@@ -134,6 +131,9 @@ DEFINE_LAYER(FN2, {
     // TODO: interface like this? I guess you could default-init matrix and then still designate init the encoder
     // encoder_map = ENCODER_CCW_CW(UG_VALD, UG_VALU);
 })
+static_assert(kLayerDef<Layer::FN2>.matrix[2][0] == KC_CAPS);
+static_assert(kLayerDef<Layer::FN2>.matrix[3][6] == BAT_LVL);
+static_assert(kLayerDef<Layer::FN2>.matrix[3][7] == BAT_LVL);
 
 DEFINE_LAYER(MOUSE, {
     fill(KC_NO);
