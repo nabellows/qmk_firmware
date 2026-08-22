@@ -58,6 +58,8 @@ DEFINE_LAYER(NORMIE, {
         .to(kMO(Layer::FN1), kMO(Layer::FN2));
     map_base(KNOB_PRESS, KNOB_CCW, KNOB_CW)
         .to(KC_MUTE, KC_VOLD, KC_VOLU);
+
+    map_base(KC_LWIN).to(KC_NO); // Win key screws you in games (smh win+ctrl+d losing me OW game). Use Fn1.
 })
 
 DEFINE_LAYER(BASE, {
@@ -81,8 +83,13 @@ DEFINE_LAYER(FN1, {
         ),
         .encoder_map = ENCODER_CCW_CW(UG_VALD, UG_VALU),
     });
-    // map_base(LSPACE, RSPACE).to_single(QK_LAYER_LOCK); // fat fingered fn1+space in arena and got molested.
-    map_base(KC_LGUI, RSPACE).to_single(QK_LAYER_LOCK); // fat fingered fn1+space in arena and got molested.
+    // fat fingered fn1+lspace in arena and got molested.
+    // Rspace might also be a bit problematic, but right now fn1 key is really only "special functions plus f keys"
+    //  a layer like nav layer, fkeys, numpad, that might want to use down arrow
+    // Do we ever even really want to layer lock this version of fn1? Perhaps better to make some real, useful layers on 1/2, numkeys,
+    //  keys, etc
+    map_base(RSPACE, KC_RCMD).to_single(QK_LAYER_LOCK);
+    map_base(KC_LWIN).to(KC_LGUI);
 
     map_base_span("1=").to(f_keys<1, 12>);
     map_base("hjkl").to(arrows_hjkl);
@@ -95,8 +102,7 @@ static_assert(kLayerDef<Layer::FN1>.matrix[0][3] == KC_F3);
 //TODO: perhaps some double tap fn1 fn2 keys to toggle the layer instead of one-shot (with timeout? gets unset if pressed once? )
 DEFINE_LAYER(FN2, {
     trans();
-    // TODO: this is a bit problematic tbh, might be better with a true numkey-only layer
-    map_base(LSPACE, RSPACE).to_single(QK_LAYER_LOCK);
+    map_base(KC_RCMD, LSPACE).to_single(QK_LAYER_LOCK);
 
     map_base("12").to(KC_BRID, KC_BRIU);
     map_base("34").to(KC_MCTRL, KC_LNPAD); // mac keys (but idk if windows uses)
