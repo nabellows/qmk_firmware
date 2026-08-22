@@ -20,6 +20,16 @@
 - A key to put caps word into super sticky mode where stuff like comma does not interrupt. I guess thats not caps word no more, but shift space...
 - Move lots of constexpr to inline constexpr (for globals that arent meant to actually extern)
 
+- Make a "weak combo" or whatever we end up calling it for gui-space and ctl-esc to be nav layer? Am I really such a baby that reaching thumb to fn1 isnt the same muscle memory as ctrl hjkl
+    - Insane idea, map ctrl hjkl to arrows completely on keyboard? Nah that would kinda break some stuff in nvim and other places like valid ctrl-hjkl differences, lazygit, shell, etc
+
+- 'Strict' mode in the util is kinda shit/overloaded, would be better to pass orthoganal/vararg enum policy flags or a policy struct (NTTP or function arg?)
+
+- factory reset + inits (snap click)
+    - Make snap-action set for normie/gaming keyboard layer and maybe not others? tbh i think no issue with a/d in moooost applications
+
+- figure out how to use lights that aren't "indicator" flag even when rgb off for caps word.... i guess declare them as indicator
+
 ## Other
 - GUI which-key helper of some kind would be wild, probably just a wrapper around launcher/via
 - Should I just/also use kanata to make gaming keyboard usable? If so, why even use QMK for much stuff besides keyboard specific features like lights, etc? 

@@ -44,8 +44,6 @@ DEFINE_LAYER(LAYOUT_BASE, {
     });
 })
 
-static_assert(std::ranges::distance(repeat_view(1) | std::views::take(3)) == 3);
-
 
 DEFINE_LAYER(NORMIE, {
     clone_base();

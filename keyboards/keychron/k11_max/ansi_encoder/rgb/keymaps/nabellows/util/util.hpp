@@ -21,16 +21,18 @@
 #include <variant>
 
 template<sz N>
+[[gnu::always_inline]]
 constexpr decltype(auto) invoke_with_index_seq(auto f){
     return [&]<sz...is>(std::index_sequence<is...>)->decltype(auto){
         return f.template operator()<is...>();
     }(std::make_index_sequence<N>{});
 }
 
-template<sz N>
-constexpr decltype(auto) invoke_with_each_index(auto f){
+template<sz N, class Agg = decltype([](auto&&...){})>
+[[gnu::always_inline]]
+constexpr decltype(auto) invoke_with_each_index(auto f, Agg agg = {}){
     return invoke_with_index_seq<N>([&]<sz...is>(){
-        return (f.template operator()<is>(), ...);
+        return agg(f.template operator()<is>()...);
     });
 }
 
@@ -209,14 +211,14 @@ constexpr decltype(auto) voidless_invoke(F&& f, A&&...args) {
 
 template<auto...vals>
 constexpr decltype(auto) tinvoke_nttp(auto&& f, auto&&...args) requires requires { FWD(f).template operator()<vals...>(FWD(args)...); } {
-    return voidless_invoke([&f, &args...]{ return FWD(f).template operator()<vals...>(FWD(args)...); });
+    return FWD(f).template operator()<vals...>(FWD(args)...);
 }
-
 
 template<auto&...vals>
 constexpr decltype(auto) tinvoke_nttp_ref(auto&& f, auto&&...args) requires requires { FWD(f).template operator()<vals...>(FWD(args)...); } {
     return FWD(f).template operator()<vals...>(FWD(args)...);
 }
+
 template<class... Ts>
 concept AllSame =
     sizeof...(Ts) == 0 ||
@@ -226,15 +228,19 @@ template<auto...vals, class Proj = std::identity>
 constexpr auto ce_for_each_val(auto F, Proj proj = {}) {
     struct LoopState {
         void Break() { m_break = true; }
-    private:
         bool m_break = false;
-        int i = 0;
+        int i = -1;
     } state;
-    auto invoke = [&]<auto val>() {
+    auto invoke = [&]<auto val>() -> decltype(auto) {
         if constexpr (requires { tinvoke_nttp<val>(F, state); }) {
-            return proj(tinvoke_nttp<val>(F, state));
+            ++state.i;
+            auto voidless = [&]->decltype(auto){ return voidless_invoke([&]{ return tinvoke_nttp<val>(F, state); }); };
+            using R = decltype(proj(voidless()));
+            if (state.m_break) return R{}; // For now, return type has to be default constructible, if you wanna use break, consider std::optional projection
+            return proj(voidless());
         } else {
-            return proj(tinvoke_nttp<val>(F));
+            auto voidless = [&]->decltype(auto){ return voidless_invoke([&]{ return tinvoke_nttp<val>(F); }); };
+            return proj(voidless());
         }
     };
     if constexpr (AllSame<decltype(tinvoke_nttp<vals>(invoke))...>) {
