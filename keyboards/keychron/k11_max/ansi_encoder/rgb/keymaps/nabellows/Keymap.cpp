@@ -95,6 +95,8 @@ DEFINE_LAYER(FN1, {
     map_base("hjkl").to(arrows_hjkl);
 
     use_base(KC_ESC);
+
+    map_base("m").to(kMO(Layer::MOUSE));
 })
 static_assert(kLayerDef<Layer::FN1>.matrix[0][3] == KC_F3);
 
@@ -144,6 +146,8 @@ DEFINE_LAYER(MOUSE, {
 
     map_base("hjkl").to(mouse_hjkl);
     map_base("wasd").to(mouse_wasd);
+
+    map_base(KC_CAPS).to(QK_LAYER_LOCK);
 })
 
 extern "C" {
