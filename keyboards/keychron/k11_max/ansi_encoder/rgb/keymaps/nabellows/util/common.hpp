@@ -5,6 +5,7 @@
 #include <type_traits>
 
 #define FWD(...) ::std::forward<decltype(__VA_ARGS__)>((__VA_ARGS__))
+#define UNPAREN(...) __VA_ARGS__
 
 #define DEDUCE_BODY(...) noexcept(noexcept(__VA_ARGS__)) requires (requires { (__VA_ARGS__); }) { return (__VA_ARGS__); }
 

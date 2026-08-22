@@ -154,12 +154,8 @@ extern const auto& encoder_map = KEYMAP.encoder_map;
 #endif
 } // extern "C"
 
-// (QMK EXPORT) (expects not const for some reason)
-auto key_combos = invoke_with_index_seq<kNumCombos>([]<sz...is>{
-    return std::array<combo_t, kNumCombos> {{
-        COMBO(ComboDef<Combo(is)>::keys, ComboDef<Combo(is)>::action)...
-    }};
-});
+// QMK needs mutable storage
+auto key_combos = kQmkComboArray;
 
 extern "C" {
 

@@ -212,6 +212,11 @@ constexpr decltype(auto) tinvoke_nttp(auto&& f, auto&&...args) requires requires
     return voidless_invoke([&f, &args...]{ return FWD(f).template operator()<vals...>(FWD(args)...); });
 }
 
+
+template<auto&...vals>
+constexpr decltype(auto) tinvoke_nttp_ref(auto&& f, auto&&...args) requires requires { FWD(f).template operator()<vals...>(FWD(args)...); } {
+    return FWD(f).template operator()<vals...>(FWD(args)...);
+}
 template<class... Ts>
 concept AllSame =
     sizeof...(Ts) == 0 ||
