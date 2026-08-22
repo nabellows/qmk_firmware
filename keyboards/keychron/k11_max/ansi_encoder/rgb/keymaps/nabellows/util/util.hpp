@@ -311,11 +311,40 @@ constexpr auto to_variant_array(std::tuple<Ts...> const& tup) {
 
 template<class T>
 constexpr auto repeat_view(T&& val) {
-    return iterate_view{
-        std::remove_cvref_t<T>(FWD(val)),
-        [](auto&){}
+    return iterate_view{ std::remove_cvref_t<T>(FWD(val)), [](auto&){} };
+}
+
+template<class R>
+concept InfiniteRange = std::ranges::range<R> && requires (R r) {
+    { std::ranges::end(r) } -> std::same_as<std::unreachable_sentinel_t>;
+};
+static_assert(InfiniteRange<std::ranges::iota_view<int>>);
+static_assert(InfiniteRange<decltype(repeat_view(1))>);
+static_assert(!InfiniteRange<std::array<int, 10>>);
+
+template<std::ranges::view V>
+class infinite_view : public std::ranges::view_interface<infinite_view<V>> {
+    V base_;
+public:
+    constexpr infinite_view() requires std::default_initializable<V> = default;
+    constexpr explicit infinite_view(V base) : base_(std::move(base)) {}
+
+    constexpr auto begin() { return std::ranges::begin(base_); }
+    constexpr auto begin() const requires std::ranges::range<const V> { return std::ranges::begin(base_); }
+
+    constexpr std::unreachable_sentinel_t end() const noexcept { return std::unreachable_sentinel; }
+    static_assert(InfiniteRange<infinite_view<V>>);
+};
+
+template<std::ranges::viewable_range R>
+infinite_view(R&&) -> infinite_view<std::views::all_t<R>>;
+
+template<std::ranges::viewable_range R>
+constexpr auto infinite_range(R&& r)
+{
+    return infinite_view<std::views::all_t<R>>{
+        std::views::all(FWD(r))
     };
-    // return std::views::iota(0) | std::views::transform([val_copy = FWD(val)](int){ return val_copy; });
 }
 
 //TODO: dope pattern that would have helped in layer_util (though compile times...), would have been a view which can handle elems of Variant<Range1, Range2> etc, which all are

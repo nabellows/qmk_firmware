@@ -111,11 +111,27 @@ concept KeyInputRange =
     >;
 
 template<class R>
-concept KeyOutputRange =
+concept KeyRefOutputRange =
     std::ranges::range<R> &&
     requires(std::ranges::iterator_t<R> it, Key key) {
         *it = key;
     };
+
+template<class R>
+concept KeyPtrOutputRange =
+    std::ranges::range<R> &&
+    requires(std::ranges::iterator_t<R> it, Key key) {
+        **it = key;
+    };
+
+template<class R>
+concept KeyOutputRange = KeyRefOutputRange<R> || KeyPtrOutputRange<R>;
+
+template<class R>
+concept InfiniteKeyInputRange = KeyInputRange<R> && InfiniteRange<R>;
+
+template<class R>
+concept InfiniteKeyOutputRange = KeyOutputRange<R> && InfiniteRange<R>;
 
 template<sz N>
 struct KeyList : std::array<Key, N> {

@@ -9,7 +9,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "concat_view.hpp"
 #include "key_util.hpp"
 #include "keycodes.h"
 #include "layers.hpp"
@@ -47,18 +46,6 @@ protected:
     constexpr void clone_base() { clone<layer_base>(); }
 
 private:
-    //TODO: private
-protected:
-    template<sz rows, sz cols>
-    constexpr auto positions_to_view(Key(&data)[rows][cols], auto positions) {
-        return std::views::iota(sz(0), positions.size()) | std::views::filter([positions](sz i){
-            return positions[i];
-        }) | std::views::transform([&data](sz i)->Key&{
-            return data[i / cols][i % cols];
-        });
-    }
-
-
     template<bool strict, bool single = strict>
     constexpr KeyOutputRange auto lookup_base_key_to_dst_range(Key key) {
         using Index = md_index<2>;
@@ -77,37 +64,24 @@ protected:
             return std::span(res, res ? 1 : 0);
         } else { // This version inevitably a bit worse on performance
             bool found = false;
-            auto [matrix_view, encoder_view] = ce_for_each_val<&LayerDefBase::matrix, &LayerDefBase::encoder_map>([&]<auto member>{
+            std::vector<Key*> key_targets;
+            ce_for_each_val<&LayerDefBase::matrix, &LayerDefBase::encoder_map>([&]<auto member>{
                 auto& maps = kLayerDef<layer_base>.*member;
-                using Member = std::remove_reference_t<decltype(maps)>;
-                constexpr sz N = sizeof(maps) / sizeof(Key);
-                constexpr sz rows = std::extent_v<Member, 0>;
-                constexpr sz cols = std::extent_v<Member, 1>;
-                static_assert(rows*cols == N);
-                std::array<bool, N> positions = {};
                 Index index{};
                 while (index_of(maps, key, index)) {
                     auto [row, col] = index;
-                    const sz offset = row*cols + col;
-                    positions[offset] = true;
+                    key_targets.push_back(&(this->*member)[row][col]);
                     ++index.back();
                     found = true;
                 }
-                return positions_to_view(this->*member, positions);
             });
             if (strict && !found) constexpr_fail("Mapping not found in base! (required by strict=true)");
-            return concat_view{ matrix_view, encoder_view };
+            return key_targets;
         }
     }
-protected:
-    //TODO: map() (not base)? To do so, perhaps we pass layer, and custom case constexpr-if the layer==current (then dont even use kLayerDef, use *this)
-    template<bool strict = true>
-    constexpr void map_base_pair(Key from, Key to) {
-    }
 
-private:
-    template<bool strict>
-    constexpr void map_range_impl(KeyInputRange auto&& src_r, KeyOutputRange auto&& dst_r) {
+    template<bool strict, KeyOutputRange Dst>
+    constexpr void map_range_impl(KeyInputRange auto&& src_r, Dst&& dst_r) {
         auto src = std::ranges::begin(src_r);
         auto src_end = std::ranges::end(src_r);
         auto dst = std::ranges::begin(dst_r);
@@ -117,7 +91,12 @@ private:
         if (infinite_src && infinite_dst) constexpr_fail("Error: Both mapping source/destination ranges are infinite");
 
         while (src != src_end && dst != dst_end) {
-            *dst = static_cast<Key>(*src);
+            if constexpr (KeyRefOutputRange<Dst>) {
+                *dst = static_cast<Key>(*src);
+            } else {
+                static_assert(KeyPtrOutputRange<Dst>, "Unexpected output range type");
+                **dst = static_cast<Key>(*src);
+            }
             ++src;
             ++dst;
         }
@@ -135,15 +114,35 @@ private:
     requires (!kIsKeyList<A> && ...) // prefer the above for perfect forward
     constexpr static auto common_cast(A&&...args) { return KeyList{ FWD(args)... }; }
 
+    constexpr static Key* key_ptr(Key& k) { return &k; }
+    constexpr static Key* key_ptr(Key* p) { return p; }
+
     constexpr static KeyInputRange decltype(auto) to_src_range(auto&&...args) { return common_cast(FWD(args)...); }
 
-    template<bool strict>
-    constexpr KeyOutputRange auto to_dst_range_from_base_impl_(KeyInputRange auto&& r)
+    template<bool strict, KeyInputRange R>
+    requires (not InfiniteRange<R>)
+    constexpr KeyOutputRange auto to_dst_range_from_base_impl_(R&& r)
     {
-        return FWD(r) | std::views::transform([this](Key k) {
-            return lookup_base_key_to_dst_range<strict>(k);
-        }) | std::views::join;
+        std::vector<Key*> key_targets;
+        if constexpr (std::ranges::sized_range<R>) {
+            key_targets.reserve(std::ranges::size(FWD(r)));
+        }
+        for (Key& base_key : FWD(r)) {
+            auto dst_range = lookup_base_key_to_dst_range<strict>(base_key);
+            for (auto&& dst_key : dst_range) {
+                key_targets.push_back(key_ptr(dst_key));
+            }
+        }
+        return key_targets;
     }
+
+    template<bool strict, InfiniteKeyInputRange R>
+    constexpr InfiniteKeyOutputRange auto to_dst_range_from_base_impl_(R&& r) {
+        return infinite_range(std::ranges::owning_view(FWD(r)) | std::views::transform([this](Key k) {
+            return lookup_base_key_to_dst_range<strict>(k);
+        }) | std::views::join);
+    }
+
     template<bool strict>
     constexpr KeyOutputRange decltype(auto) to_dst_range_from_base(auto&&...args) { return to_dst_range_from_base_impl_<strict>(common_cast(FWD(args)...)); }
 
@@ -161,44 +160,23 @@ protected:
         const Key* base_data;
         Key* data;
         sz raw_size;
-        sz num_keys; //TODO: remove? Or still handy?
     public:
-
-        constexpr sz size() const { return num_keys; }
-
         constexpr KeySpan(LayerDefBase& self, auto member, sz from_row, sz from_col, sz to_row, sz to_col) {
             if (from_row > to_row || from_col > to_col) constexpr_fail("Invalid Key Span (negative direction)");
             base_data = &(kLayerDef<layer_base>.*member)[from_row][from_col];
             data = &(self.*member)[from_row][from_col];
             raw_size = &(self.*member)[to_row][to_col] - data + sz(1);
-            num_keys = raw_size - std::count(data, data+raw_size, Key(KC_NO));
         }
 
         constexpr auto to_dst_range() {
-            return std::views::iota(sz(0), raw_size)
-            | std::views::filter([bd=base_data](sz i){ return bd[i] != KC_NO; })
-            | std::views::transform([d=data](sz i) -> Key& { return d[i]; });
-        }
-
-        // TODO: remove
-        // TODO: Should just invoke .to(KeyRange(args...)) and KeyRange should be adapted to have the finite/infinite function
-        template<bool strict = true, class End = Void>
-        constexpr KeySpan& to_range(Key range_begin, End range_end = {}) {
-            constexpr bool finite = requires { range_begin <= range_end; };
-            auto in_range = [&](Key k){
-                if constexpr (finite) return range_begin <= k && k <= range_end;
-                return true;
-            };
-            if (!in_range(range_begin)) throw "Invalid range (begin > end)";
-            Key cur = range_begin;
-            to([&](int i){
-                if (!in_range(cur)) throw "Range overflow (rhs/'to' side of mapping is too short to map all the keys)";
-                return cur++;
-            });
-            if (strict && finite && in_range(cur)) {
-                throw "Ranges do not exactly match in size (strict=true)";
+            std::vector<Key*> real_keys;
+            real_keys.reserve(raw_size);
+            for (int i = 0; i < raw_size; ++i) {
+                if (base_data[i] != KC_NO) {
+                    real_keys.push_back(&data[i]);
+                }
             }
-            return *this;
+            return real_keys;
         }
     };
 
@@ -209,9 +187,9 @@ protected:
     constexpr KeySpan base_span(Key from, Key to) {
         std::optional<KeySpan> res;
         ce_for_each_val<&LayerDefBase::matrix, &LayerDefBase::encoder_map>([&]<auto member>{
-            auto& ref = kLayerDef<layer_base>.*member;
-            auto from_index = index_of(ref, from);
-            auto to_index = index_of(ref, to);
+            auto& base_ref = kLayerDef<layer_base>.*member;
+            auto from_index = index_of(base_ref, from);
+            auto to_index = index_of(base_ref, to);
             if (from_index.has_value() != to_index.has_value()) constexpr_fail("Bad span, base matrix/map contains one key and not the other");
             if (from_index) {
                 auto [from_row, from_col] = *from_index;
@@ -248,7 +226,7 @@ protected:
     template<bool strict, KeyOutputRange Dst>
     class Mapper {
         LayerDefBase& def;
-        Dst dst; // TODO: simplify and call map_base_pairs and instead just store a tuple (not ref..) here?
+        Dst dst;
         MappingTracker tracker;
     public:
         constexpr Mapper(LayerDefBase& def, Dst dst)
@@ -261,7 +239,7 @@ protected:
         }
 
         constexpr void to_single(Key key) {
-            static_assert(std::same_as<decltype(repeat_view(key).end()), std::unreachable_sentinel_t>);
+            static_assert(InfiniteRange<decltype(repeat_view(key))>);
             def.map_range_impl<strict>(repeat_view(key), dst);
             tracker.mapped();
         }
@@ -279,8 +257,7 @@ protected:
 
     template<bool strict = true, class...Args>
     [[nodiscard]]
-    constexpr auto map_base(Args&&... args) requires requires { KeyList{ FWD(args)... }; } {
-        KeyList list{ FWD(args)... };
+    constexpr auto map_base(Args&&... args) {
         return mapper<strict>(*this, to_dst_range_from_base<strict>(FWD(args)...));
     }
 
@@ -289,14 +266,14 @@ protected:
         return mapper<strict>(*this, base_span(from, to).to_dst_range());
     }
 
+    template<bool strict = true>
     constexpr auto map_base_span(KeyList<2> pair) {
-        return map_base_span(pair.front(), pair.back());
+        return map_base_span<strict>(pair.front(), pair.back());
     }
 
     template<bool strict = true, class...Args>
     constexpr auto use_base(Args&&... args) {
-        KeyList list { FWD(args)... }; // TODO:
-        return map_base_pairs<strict>(list, list);
+        return map_range_impl<strict>(to_src_range(FWD(args)...), to_dst_range_from_base<strict>(FWD(args)...));
     }
 };
 
