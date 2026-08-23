@@ -59,7 +59,7 @@ struct ComboBaseWithKeys : ComboBase {
 DEF_COMBO(BOTH_SHIFT, (KC_LSFT, KC_RSFT), {
     action = T_CAPS_WORD;
     combo_term = UINT16_MAX;
-    enabled = true;
+    enabled = false;
 });
 
 //-----------------------------------------------------------------------------
