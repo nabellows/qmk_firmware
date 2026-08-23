@@ -94,8 +94,6 @@ DEFINE_LAYER(FN1, {
 
     map_base_span("1=").to(f_keys<1, 12>);
     map_base("hjkl").to(arrows_hjkl);
-
-    map_base("m").to(kMO(Layer::MOUSE));
 })
 static_assert(kLayerDef<Layer::FN1>.matrix[0][3] == KC_F3);
 
@@ -135,6 +133,15 @@ static_assert(kLayerDef<Layer::FN2>.matrix[2][0] == KC_CAPS);
 static_assert(kLayerDef<Layer::FN2>.matrix[3][6] == BAT_LVL);
 static_assert(kLayerDef<Layer::FN2>.matrix[3][7] == BAT_LVL);
 
+DEFINE_LAYER(SELECT, {
+    fill(KC_NO);
+    map_base(KC_ESC).to(kMO(layer_self));
+    map_base(KC_CAPS).to(kMO(layer_self));
+    map_base("c").to(kTG(Layer::CONTROL));
+    map_base('b', RIGHT_B).to_single(kTG(Layer::BASE));
+    map_base("m").to(kTG(Layer::MOUSE));
+})
+
 DEFINE_LAYER(MOUSE, {
     fill(KC_NO);
     using key_defs::mouse_buttons;
@@ -148,15 +155,7 @@ DEFINE_LAYER(MOUSE, {
     map_base("hjkl").to(mouse_hjkl);
     map_base("wasd").to(mouse_wasd);
 
-    map_base(KC_CAPS).to(QK_LAYER_LOCK);
-})
-
-DEFINE_LAYER(SELECT, {
-    fill(KC_NO);
-    map_base(KC_ESC).to(kMO(layer_self));
-    map_base(KC_CAPS).to(kMO(layer_self));
-    map_base("c").to(kTG(Layer::CONTROL));
-    map_base('b', RIGHT_B).to_single(kTG(Layer::BASE));
+    map_base(KC_CAPS).to(kTG(layer_self));
 })
 
 DEFINE_LAYER(CONTROL, {
