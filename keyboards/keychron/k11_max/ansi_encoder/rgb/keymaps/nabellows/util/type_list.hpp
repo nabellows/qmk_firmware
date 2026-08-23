@@ -52,6 +52,8 @@ using pack_element_t = detail::pack_element_impl<I, Ts...>;
 template<class TL>
 using TypeListFrom = decltype(detail::type_list_from_(std::declval<TL>()));
 
+constexpr inline auto lMakeTypeList = []<class...Ts>(){ return TypeList<Ts...>{}; };
+
 template<class...Ts>
 using ToTypeList = detail::ToTypeList_<Ts...>::type;
 

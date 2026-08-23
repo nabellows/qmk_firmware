@@ -2,17 +2,31 @@
 
 #include "compat.hpp"
 #include "config.h"
+#include "eeconfig/eeconfig.hpp"
 
 #include <bit>
 #include <stdint.h>
-#include <string.h>
 
 extern "C" {
-#include "eeconfig.h"
 #include "timer.h"
 }
 
 extern "C" uint16_t c_offsets[];
+
+namespace mouse {
+
+struct Config : eeconfig::ConfigBlockBase<eeconfig::Block::MOUSE> {
+    uint8_t normal;
+    uint8_t slow;
+    uint8_t fast;
+};
+
+} // namespace mouse
+
+template<>
+struct eeconfig::BlockDef<eeconfig::Block::MOUSE> {
+    using type = mouse::Config;
+};
 
 namespace mouse {
 
@@ -22,16 +36,6 @@ enum SpeedIndex : uint8_t {
     FAST   = 3,
 };
 
-struct SpeedConfig {
-    uint8_t normal;
-    uint8_t slow;
-    uint8_t fast;
-    uint8_t magic;
-};
-
-static_assert(sizeof(SpeedConfig) == sizeof(uint32_t));
-
-inline constexpr uint8_t kConfigMagic = 0xA7;
 inline constexpr uint8_t kMinSpeed = 1;
 inline constexpr uint8_t kMaxSpeed = 127;
 inline constexpr uint16_t kSaveDelayMs = 1000;
@@ -55,10 +59,8 @@ inline SpeedIndex selected_speed() {
 }
 
 inline void load_speeds() {
-    const uint32_t raw = eeconfig_read_user();
-    SpeedConfig config;
-    memcpy(&config, &raw, sizeof(config));
-    if (config.magic != kConfigMagic ||
+    const Config &config = eeconfig::read<Config>();
+    if (
         config.normal < kMinSpeed || config.normal > kMaxSpeed ||
         config.slow < kMinSpeed || config.slow > kMaxSpeed ||
         config.fast < kMinSpeed || config.fast > kMaxSpeed) return;
@@ -69,15 +71,12 @@ inline void load_speeds() {
 }
 
 inline void save_speeds() {
-    const SpeedConfig config = {
+    const Config config = {
         .normal = uint8_t(c_offsets[SpeedIndex::NORMAL]),
         .slow = uint8_t(c_offsets[SpeedIndex::SLOW]),
         .fast = uint8_t(c_offsets[SpeedIndex::FAST]),
-        .magic = kConfigMagic,
     };
-    uint32_t raw;
-    memcpy(&raw, &config, sizeof(raw));
-    eeconfig_update_user(raw);
+    eeconfig::write(config);
     speed_dirty = false;
 }
 

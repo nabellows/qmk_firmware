@@ -74,6 +74,7 @@ void keyboard_post_init_user() {
 }
 
 void eeconfig_init_user() {
+    eeconfig::invalidate();
     mouse::init_eeprom();
 }
 
@@ -171,3 +172,6 @@ uint16_t get_tapping_term(qmk_key_t keycode, keyrecord_t *record) {
 }
 
 }
+
+#define EECONFIG_IMPL
+#include "eeconfig/eeconfig_impl.hpp"

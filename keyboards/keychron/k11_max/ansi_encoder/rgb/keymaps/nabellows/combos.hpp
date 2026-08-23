@@ -21,9 +21,9 @@ extern "C" {
 // combos past-the-end like we do in layers
 enum class Combo {
     BOTH_SHIFT,
-    COMBO_NAME_ENUM_END,
+    ENUM_END,
 };
-constexpr static sz kNumCombosRaw = sz(Combo::COMBO_NAME_ENUM_END);
+constexpr static sz kNumCombosRaw = sz(Combo::ENUM_END);
 
 template<Combo combo>
 struct ComboDef {
@@ -70,9 +70,7 @@ DEF_COMBO(BOTH_SHIFT, (KC_LSFT, KC_RSFT), {
 //-----------------------------------------------------------------------------
 
 constexpr decltype(auto) unpack_combos_raw(auto f) {
-    return invoke_with_index_seq<kNumCombosRaw>([&]<sz...is>() -> decltype(auto) {
-        return tinvoke_nttp<Combo{ is }...>(f);
-    });
+    return unpack_enum<Combo>(f);
 }
 
 constexpr decltype(auto) unpack_combo_defs_raw(auto f) {

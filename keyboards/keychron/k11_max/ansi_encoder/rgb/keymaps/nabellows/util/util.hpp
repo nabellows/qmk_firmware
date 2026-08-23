@@ -240,6 +240,11 @@ constexpr decltype(auto) voidless_invoke(F&& f, A&&...args) {
     }
 }
 
+template<class...Ts>
+constexpr decltype(auto) tinvoke_t(auto&& f, auto&&...args) requires requires { FWD(f).template operator()<Ts...>(FWD(args)...); } {
+    return FWD(f).template operator()<Ts...>(FWD(args)...);
+}
+
 template<auto...vals>
 constexpr decltype(auto) tinvoke_nttp(auto&& f, auto&&...args) requires requires { FWD(f).template operator()<vals...>(FWD(args)...); } {
     return FWD(f).template operator()<vals...>(FWD(args)...);
@@ -248,6 +253,20 @@ constexpr decltype(auto) tinvoke_nttp(auto&& f, auto&&...args) requires requires
 template<auto&...vals>
 constexpr decltype(auto) tinvoke_nttp_ref(auto&& f, auto&&...args) requires requires { FWD(f).template operator()<vals...>(FWD(args)...); } {
     return FWD(f).template operator()<vals...>(FWD(args)...);
+}
+
+template<class Enum>
+constexpr inline bool kIsPackedEnum = requires { Enum::ENUM_END; };
+
+template<class Enum>
+constexpr inline bool kEnumLen = sz(Enum::ENUM_END);
+
+template<class Enum>
+requires (kIsPackedEnum<Enum> && requires{ kEnumLen<Enum>; })
+constexpr decltype(auto) unpack_enum(auto&& f) {
+    return invoke_with_index_seq<kEnumLen<Enum>>([&]<sz...is>() -> decltype(auto) {
+        return tinvoke_nttp<Enum(is)...>(f);
+    });
 }
 
 template<class... Ts>
