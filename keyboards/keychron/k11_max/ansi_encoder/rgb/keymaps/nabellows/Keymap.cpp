@@ -114,6 +114,7 @@ DEFINE_LAYER(FN2, {
     // Assorted typical keyboard keys
     map_base("12").to(KC_BRID, KC_BRIU);
     map_base("34").to(KC_MCTRL, KC_LNPAD); // mac keys (but idk if windows uses)
+    map_base('b', RIGHT_B).to_single(BAT_LVL);
 
     // Media
     map_base("789").to(KC_MEDIA_PREV_TRACK, KC_MEDIA_PLAY_PAUSE, KC_MEDIA_NEXT_TRACK);
@@ -131,6 +132,8 @@ DEFINE_LAYER(FN2, {
     );
 })
 static_assert(kLayerDef<Layer::FN2>.matrix[2][0] == KC_CAPS);
+static_assert(kLayerDef<Layer::FN2>.matrix[3][6] == BAT_LVL);
+static_assert(kLayerDef<Layer::FN2>.matrix[3][7] == BAT_LVL);
 
 DEFINE_LAYER(MOUSE, {
     fill(KC_NO);
@@ -162,19 +165,12 @@ DEFINE_LAYER(CONTROL, {
     map_base(KC_CAPS).to(kMO(layer_self));
 
     map_base_span("qr").to(BT_HST1, BT_HST2, BT_HST3, P2P4G); // Keeping this because its printed on the keys
-    map_base("az").to(UG_NEXT, UG_PREV);
-    map_base("sx").to(UG_HUEU, UG_HUED);
-    map_base("dc").to(UG_SATU, UG_SATD);
-    map_base("fv").to(UG_SPDU, UG_SPDD);
+    // Select the variable adjusted by the encoder: Effect, Hue, Speed, sAturation, Brightness.
+    map_base("ehsab").to_single(CONTROL_VAR);
 
-    // TODO: might be way better to make these keys just control which var is being controlled and then you use the knob!!!
     map_base(KNOB_PRESS, KNOB_CCW, KNOB_CW)
-        .to(UG_TOGG, UG_VALD, UG_VALU);
-
-    map_base('b', RIGHT_B).to_single(BAT_LVL);
+        .to(UG_TOGG, VAR_MINUS, VAR_PLUS);
 })
-static_assert(kLayerDef<Layer::CONTROL>.matrix[3][6] == BAT_LVL);
-static_assert(kLayerDef<Layer::CONTROL>.matrix[3][7] == BAT_LVL);
 
 extern "C" {
 

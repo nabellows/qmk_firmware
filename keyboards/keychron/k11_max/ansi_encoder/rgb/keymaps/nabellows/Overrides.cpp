@@ -8,9 +8,44 @@
 extern "C" {
 #include "action.h"
 #include "caps_word.h"
+#include "keymap_introspection.h"
 #include "keycodes.h"
 #include "layers.hpp"
+#include "process_underglow.h"
 #include "rgb_matrix.h"
+}
+
+enum class ControlVar : uint8_t {
+    NONE,
+    BRIGHTNESS,
+    EFFECT,
+    HUE,
+    SATURATION,
+    SPEED,
+};
+
+static ControlVar current_control_var = ControlVar::NONE;
+
+static void select_control_var(qmk_key_t base_keycode) {
+    switch (base_keycode) {
+        case KC_E: current_control_var = ControlVar::EFFECT;     break;
+        case KC_H: current_control_var = ControlVar::HUE;        break;
+        case KC_A: current_control_var = ControlVar::SATURATION; break;
+        case KC_B: current_control_var = ControlVar::BRIGHTNESS; break;
+        case KC_S: current_control_var = ControlVar::SPEED;      break;
+    }
+}
+
+static qmk_key_t control_var_keycode(bool increase) {
+    switch (current_control_var) {
+        case ControlVar::NONE:       return KC_NO;
+        case ControlVar::BRIGHTNESS: return increase ? UG_VALU : UG_VALD;
+        case ControlVar::EFFECT:     return increase ? UG_NEXT : UG_PREV;
+        case ControlVar::HUE:        return increase ? UG_HUEU : UG_HUED;
+        case ControlVar::SATURATION: return increase ? UG_SATU : UG_SATD;
+        case ControlVar::SPEED:      return increase ? UG_SPDU : UG_SPDD;
+    }
+    __builtin_unreachable();
 }
 
 struct OsState {
@@ -74,6 +109,26 @@ static qmk_key_t shift_state = 0;
 // clang-format on
 bool process_record_user(qmk_key_t keycode, keyrecord_t *record) {
     switch (keycode) {
+        case CONTROL_VAR:
+            if (record->event.pressed) {
+                select_control_var(keycode_at_keymap_location_raw(
+                    layer_state_t(Layer::BASE),
+                    record->event.key.row,
+                    record->event.key.col
+                ));
+            }
+            return false;
+
+        case VAR_MINUS:
+        case VAR_PLUS:
+            if (record->event.pressed) {
+                const qmk_key_t control_keycode = control_var_keycode(keycode == VAR_PLUS);
+                if (control_keycode != KC_NO) {
+                    process_underglow(control_keycode, record);
+                }
+            }
+            return false;
+
         case KC_LSFT:
         case KC_RSFT:
             shift_state ^= keycode;
@@ -86,6 +141,14 @@ bool process_record_user(qmk_key_t keycode, keyrecord_t *record) {
         return false;
     }
     return true;
+}
+
+layer_state_t layer_state_set_user(layer_state_t state) {
+    constexpr layer_state_t control_layer = layer_state_t(1) << layer_state_t(Layer::CONTROL);
+    if ((state ^ layer_state) & control_layer) {
+        current_control_var = ControlVar::NONE;
+    }
+    return state;
 }
 
 bool rgb_matrix_indicators_user() {

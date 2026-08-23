@@ -21,6 +21,9 @@ typedef enum {
     KNOB_PRESS,
     KNOB_CCW,
     KNOB_CW,
+    CONTROL_VAR,
+    VAR_MINUS,
+    VAR_PLUS,
 } custom_kc_t;
 
 namespace key_defs {
