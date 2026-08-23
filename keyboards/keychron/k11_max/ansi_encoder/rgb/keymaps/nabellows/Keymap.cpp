@@ -197,7 +197,7 @@ extern "C" {
 #include "keymap_introspection.c"
 
 static_assert(NUM_KEYMAP_LAYERS_RAW == kNumLayers);
-static_assert(ARRAY_SIZE(key_combos) == kNumCombos);
+static_assert(ARRAY_SIZE(key_combos) == kNumEnabledCombos);
 static_assert(ARRAY_SIZE(key_overrides) == kNumKeyOverrides);
 }
 

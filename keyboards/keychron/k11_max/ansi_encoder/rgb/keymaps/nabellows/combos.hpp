@@ -16,6 +16,9 @@ extern "C" {
 #include "process_combo.h"
 }
 
+// WARNING: This is NOT a 1:1 mapping to combo_index becaue they can be disabled. Perhaps we should remove
+// that feature (even though current logic handles it), and instead encourage user to just move disabled
+// combos past-the-end like we do in layers
 enum class Combo {
     BOTH_SHIFT,
     COMBO_NAME_ENUM_END,
@@ -78,11 +81,11 @@ constexpr decltype(auto) unpack_combo_defs_raw(auto f) {
     });
 }
 
-constexpr static sz kNumCombos = unpack_combo_defs_raw([]<auto...defs>{
+constexpr static sz kNumEnabledCombos = unpack_combo_defs_raw([]<auto...defs>{
     return (int(defs.enabled) + ... + 0);
 });
 
-constexpr decltype(auto) unpack_combo_defs(auto f) {
+constexpr decltype(auto) unpack_enabled_combo_defs(auto f) {
     return unpack_combo_defs_raw([&]<auto&...defs>{
         using FilteredList = ValTypeList<&defs...>::template filter_t<[]<class C>{ return C::val->enabled; }>;
         return FilteredList::apply_t([&]<class...NTTPs>() -> decltype(auto) {
@@ -91,19 +94,19 @@ constexpr decltype(auto) unpack_combo_defs(auto f) {
     });
 }
 
-constexpr decltype(auto) unpack_combos(auto f) {
-    return unpack_combo_defs([&]<auto&...defs>() -> decltype(auto) {
+constexpr decltype(auto) unpack_enabled_combos(auto f) {
+    return unpack_enabled_combo_defs([&]<auto&...defs>() -> decltype(auto) {
         return tinvoke_nttp_ref<defs.name...>(f);
     });
 }
 
-constexpr auto kComboDefs = unpack_combo_defs([]<auto&...defs>{
+constexpr auto kEnabledComboDefs = unpack_enabled_combo_defs([]<auto&...defs>{
     return std::tuple<decltype(defs)...>{ defs... };
 });
 
 template<class Visitor>
-using ComboVisitResult = decltype(unpack_combo_defs([]<auto&...defs>(){
-    using R = std::conditional_t<(kNumCombos > 0),
+using ComboVisitResult = decltype(unpack_enabled_combo_defs([]<auto&...defs>(){
+    using R = std::conditional_t<(kNumEnabledCombos > 0),
         std::common_type<decltype(tinvoke_nttp_ref<defs>(std::declval<Visitor>()))...>,
         std::type_identity<decltype(tinvoke_nttp_ref<kComboBaseDefaults>(std::declval<Visitor>()))>
     >;
@@ -113,16 +116,15 @@ using ComboVisitResult = decltype(unpack_combo_defs([]<auto&...defs>(){
 template<sz I = 0, class Vis>
 [[gnu::always_inline]]
 constexpr ComboVisitResult<Vis> visit_combo(uint16_t combo_index, Vis visitor) {
-    const Combo combo_name{ combo_index };
-    if constexpr (I < kNumCombos) {
+    if constexpr (I < kNumEnabledCombos) {
         if (I == combo_index) {
-            return tinvoke_nttp_ref<get<I>(kComboDefs)>(visitor);
+            return tinvoke_nttp_ref<get<I>(kEnabledComboDefs)>(visitor);
         } else {
             return visit_combo<I + 1>(combo_index, visitor);
         }
     } else {
         constexpr_fail("Invalid combo index!");
-        if constexpr (kNumCombos == 0) { // I mean.... lol
+        if constexpr (kNumEnabledCombos == 0) { // I mean.... lol
             return tinvoke_nttp_ref<kComboBaseDefaults>(visitor);
         } else {
             // Hopefully impossible with runtime indexing!!!!
@@ -154,7 +156,7 @@ QMK_INLINE bool combo_should_trigger(uint16_t combo_index, combo_t *combo, uint1
     });
 }
 
-constexpr inline auto kQmkComboArray = unpack_combo_defs([]<auto&...defs>{
-    return std::array<combo_t, kNumCombos> {{ COMBO(defs.keys, defs.action)... }};
+constexpr inline auto kQmkComboArray = unpack_enabled_combo_defs([]<auto&...defs>{
+    return std::array<combo_t, kNumEnabledCombos> {{ COMBO(defs.keys, defs.action)... }};
 });
 
