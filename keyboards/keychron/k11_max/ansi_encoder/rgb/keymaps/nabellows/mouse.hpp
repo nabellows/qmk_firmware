@@ -80,19 +80,33 @@ inline void save_speeds() {
     speed_dirty = false;
 }
 
+inline uint8_t get_speed(SpeedIndex speed) {
+    return uint8_t(c_offsets[speed]);
+}
+
+inline void mark_dirty() {
+    speed_dirty = true;
+    speed_save_timer = timer_read();
+}
+
+inline void set_speed(SpeedIndex speed, uint8_t value) {
+    c_offsets[speed] = value < kMinSpeed ? kMinSpeed
+                     : value > kMaxSpeed ? kMaxSpeed
+                     : value;
+    mark_dirty();
+}
+
 inline void adjust_speed(bool increase) {
     uint16_t &speed = c_offsets[selected_speed()];
     if (increase && speed < kMaxSpeed) ++speed;
     if (!increase && speed > kMinSpeed) --speed;
-    speed_dirty = true;
-    speed_save_timer = timer_read();
+    mark_dirty();
 }
 
 inline void reset_speed() {
     const SpeedIndex speed = selected_speed();
     c_offsets[speed] = kDefaultSpeeds[speed];
-    speed_dirty = true;
-    speed_save_timer = timer_read();
+    mark_dirty();
 }
 
 inline void set_speed_modifier(SpeedIndex speed, bool pressed) {

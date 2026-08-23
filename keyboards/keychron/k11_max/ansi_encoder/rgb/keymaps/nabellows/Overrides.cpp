@@ -6,6 +6,7 @@
 #include "key_util.hpp"
 #include "keys.hpp"
 #include "mouse.hpp"
+#include "via.hpp"
 
 extern "C" {
 #include "action.h"
@@ -66,6 +67,10 @@ bool get_hold_on_other_key_press(qmk_key_t keycode, keyrecord_t* record) {
     return get_mod_tap_behavior(keycode, record) == HOLD_ON_OTHER_KEY_PRESS;
 }
 
+void via_custom_value_command_kb(uint8_t *data, uint8_t length) {
+    via_config::custom_value_command(data, length);
+}
+
 void keyboard_post_init_user() {
 #ifdef DEBUG
     debug_enable = true;
@@ -80,6 +85,7 @@ void eeconfig_init_user() {
 
 void housekeeping_task_user() {
     mouse::housekeeping_task();
+    via_config::housekeeping_task();
 }
 
 static qmk_key_t shift_state = 0;
@@ -103,6 +109,7 @@ bool process_record_user(qmk_key_t keycode, keyrecord_t *record) {
                 const bool increase = keycode == VAR_PLUS;
                 if (layer_state_is(Layer::MOUSE)) {
                     mouse::adjust_speed(increase);
+                    via_config::request_mouse_sync();
                 } else if (layer_state_is(Layer::CONTROL)) {
                     control::adjust_var(increase, record);
                 }
@@ -113,6 +120,7 @@ bool process_record_user(qmk_key_t keycode, keyrecord_t *record) {
             if (record->event.pressed) {
                 if (layer_state_is(Layer::MOUSE)) {
                     mouse::reset_speed();
+                    via_config::request_mouse_sync();
                 } else if (layer_state_is(Layer::CONTROL)) {
                     control::reset_var();
                 }

@@ -65,6 +65,34 @@
           ]
         }
       ]
+    },
+    {
+      "label": "Mouse",
+      "content": [
+        {
+          "label": "Pointer Speeds",
+          "content": [
+            {
+              "label": "Normal",
+              "type": "range",
+              "options": [1, 50],
+              "content": ["id_mouse_speed_normal", 0, 1]
+            },
+            {
+              "label": "Slow (Shift)",
+              "type": "range",
+              "options": [1, 20],
+              "content": ["id_mouse_speed_slow", 0, 2]
+            },
+            {
+              "label": "Fast (Ctrl)",
+              "type": "range",
+              "options": [1, 127],
+              "content": ["id_mouse_speed_fast", 0, 3]
+            }
+          ]
+        }
+      ]
     }
   ],
   "customKeycodes": [
