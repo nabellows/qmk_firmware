@@ -147,13 +147,17 @@ DEFINE_LAYER(MOUSE, {
     using key_defs::mouse_buttons;
 
     map_base_span("18").to(mouse_buttons<>);
-    map_base(LSPACE, KC_ENTER).to_single(MS_BTN1);
-    map_base(RSPACE).to_single(MS_BTN2);
+    map_base(LSPACE, RSPACE, KC_ENTER).to_single(MS_BTN1);
+    map_base(KC_LOPT, FN1, FN2, KC_RCMD, KC_SEMI).to_single(MS_BTN2);
 
     map_base("qe").to(mouse_buttons<1, 2>);
+    map_base("ui").to(mouse_buttons<1, 2>); // right handed
 
     map_base("hjkl").to(mouse_hjkl);
     map_base("wasd").to(mouse_wasd);
+
+    map_base(KC_LSFT, KC_RSFT).to_single(MS_ACL0);
+    map_base(KC_LCTL).to(MS_ACL2);
 
     map_base(KC_CAPS).to(kTG(layer_self));
 })
