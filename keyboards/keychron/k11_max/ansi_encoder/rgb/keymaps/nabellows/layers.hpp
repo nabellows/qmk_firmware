@@ -15,6 +15,8 @@ enum class Layer : layer_state_t {
     BASE, MAC_BASE = BASE,
     FN1,
     FN2,
+    SELECT,
+    CONTROL,
     MOUSE,
 
     LAYER_ENUM_END,
@@ -36,6 +38,7 @@ constexpr decltype(auto) for_each_layer(auto F) {
 constexpr auto kMO(Layer layer) { return MO(layer_state_t(layer)); }
 constexpr auto kTO(Layer layer) { return TO(layer_state_t(layer)); }
 constexpr auto kTG(Layer layer) { return TG(layer_state_t(layer)); }
+constexpr auto kOSL(Layer layer) { return OSL(layer_state_t(layer)); }
 
 inline auto default_layer_set(Layer layer) {
     return default_layer_set(1 << layer_state_t(layer));

@@ -6,6 +6,7 @@
 #include "keys.hpp"
 #include "layer_util.hpp"
 #include "layers.hpp"
+#include "modifiers.h"
 #include "report.h"
 #include "util.hpp"
 
@@ -36,7 +37,7 @@ DEFINE_LAYER(LAYOUT_BASE, {
             /*------------------------------------------------------------------------------------------------------------------------------------------------*/
             KC_TAB, /**/   KC_Q,   KC_W,   KC_E,   KC_R,   KC_T,  /**/ KC_Y,  KC_U,   KC_I,   KC_O,   KC_P,    KC_LBRC, KC_RBRC,/**/ KC_BSLS,  /**/   KC_DEL,
             KC_CAPS,/**/   KC_A,   KC_S,   KC_D,   KC_F,   KC_G,  /**/        KC_H,   KC_J,   KC_K,   KC_L,    KC_SEMI, KC_QUOT,/**/ KC_ENT,   /**/   KC_HOME,
-            KC_LSFT,/**/   KC_Z,   KC_X,   KC_C,   KC_V,   KC_B,  /**/ KC_B,  KC_N,   KC_M,  KC_COMM, KC_DOT,  KC_SLSH,    /**/ KC_RSFT,      KC_UP,
+            KC_LSFT,/**/   KC_Z,   KC_X,   KC_C,   KC_V,   KC_B, /**/ RIGHT_B, KC_N,  KC_M,  KC_COMM, KC_DOT,  KC_SLSH,    /**/ KC_RSFT,      KC_UP,
             /*------------------------------------------------------------------------------------------------------------------------------------------------*/
             KC_LCTL, KC_LWIN,      KC_LOPT,    LSPACE,      FN1,  /**/   FN2,       RSPACE,         KC_RCMD,               /**/      KC_LEFT, KC_DOWN, KC_RGHT
         ),
@@ -59,7 +60,8 @@ DEFINE_LAYER(NORMIE, {
     map_base(KNOB_PRESS, KNOB_CCW, KNOB_CW)
         .to(KC_MUTE, KC_VOLD, KC_VOLU);
 
-    map_base(KC_LWIN).to(KC_NO); // Win key screws you in games (smh win+ctrl+d losing me OW game). Use Fn1.
+    map_base(KC_LWIN).to(KC_NO); // Win key screws you in games (smh win+ctrl+d losing me OW game). Use Fn1. Actually, prefer right hand.
+    // Or, escape hatch to BASE somehow (double tab fn1?) Still need kinda an ergo left hand way for stuff like win+shift+s
 })
 
 DEFINE_LAYER(BASE, {
@@ -73,28 +75,25 @@ DEFINE_LAYER(BASE, {
 static_assert(kLayerDef<Layer::BASE>.matrix[2][0] == CTL_ESC);
 
 DEFINE_LAYER(FN1, {
-    set({
-        .matrix = LAYOUT(
-            _______, _______,  _______,  _______, _______, _______, _______,  _______, _______, _______, _______,  _______,  _______,  _______,          UG_TOGG,
-            _______, BT_HST1,  BT_HST2,  BT_HST3, P2P4G,   _______, _______,  _______, _______, _______, _______,  _______,  _______,  _______,          KC_INS,
-            UG_TOGG, UG_NEXT,  UG_VALU,  UG_HUEU, UG_SATU, UG_SPDU,           _______, _______, _______, _______,  _______,  _______,  _______,          KC_END,
-            _______, UG_PREV,  UG_VALD,  UG_HUED, UG_SATD, UG_SPDD, _______,  _______, _______, _______,  _______, _______,  _______,           KC_PGUP,
-            _______, _______,  _______,           _______,          _______,  _______,          _______,           _______,            _______, KC_PGDN, _______
-        ),
-        .encoder_map = ENCODER_CCW_CW(UG_VALD, UG_VALU),
-    });
+    trans();
+    map_base(FN2).to(kOSL(Layer::SELECT)); // This feels a bit sketchy
+
+    // RGB
+    map_base(KNOB_PRESS, KNOB_CCW, KNOB_CW)
+        .to(UG_TOGG, UG_VALD, UG_VALU);
+
+    use_base(KC_ESC);
+    use_base(KC_CAPS);
     // fat fingered fn1+lspace in arena and got molested.
     // Rspace might also be a bit problematic, but right now fn1 key is really only "special functions plus f keys"
     //  a layer like nav layer, fkeys, numpad, that might want to use down arrow
     // Do we ever even really want to layer lock this version of fn1? Perhaps better to make some real, useful layers on 1/2, numkeys,
     //  keys, etc
     map_base(RSPACE, KC_RCMD).to_single(QK_LAYER_LOCK);
-    map_base(KC_LWIN).to(KC_LGUI);
+    use_base(KC_LWIN);
 
     map_base_span("1=").to(f_keys<1, 12>);
     map_base("hjkl").to(arrows_hjkl);
-
-    use_base(KC_ESC);
 
     map_base("m").to(kMO(Layer::MOUSE));
 })
@@ -104,18 +103,21 @@ static_assert(kLayerDef<Layer::FN1>.matrix[0][3] == KC_F3);
 //TODO: perhaps some double tap fn1 fn2 keys to toggle the layer instead of one-shot (with timeout? gets unset if pressed once? )
 DEFINE_LAYER(FN2, {
     trans();
-    map_base(KC_RCMD, LSPACE).to_single(QK_LAYER_LOCK);
-
-    map_base("12").to(KC_BRID, KC_BRIU);
-    map_base("34").to(KC_MCTRL, KC_LNPAD); // mac keys (but idk if windows uses)
-    map_base("56").to(UG_VALD, UG_VALU);
-    map_base("789").to(KC_MEDIA_PREV_TRACK, KC_MEDIA_PLAY_PAUSE, KC_MEDIA_NEXT_TRACK);
-    map_base("0-=").to(KC_MUTE, KC_VOLD, KC_VOLU);
+    map_base(FN1).to(kOSL(Layer::SELECT)); // This system a bit cooked
 
     use_base(KC_ESC);
     use_base(KC_CAPS);
+    map_base(KC_RCMD, LSPACE).to_single(QK_LAYER_LOCK);
 
-    map_base<false>("b").to_single(BAT_LVL); // b is duplicated so we disable strict mode
+    map_base(KC_LWIN).to(OSM(MOD_LGUI));
+
+    // Assorted typical keyboard keys
+    map_base("12").to(KC_BRID, KC_BRIU);
+    map_base("34").to(KC_MCTRL, KC_LNPAD); // mac keys (but idk if windows uses)
+
+    // Media
+    map_base("789").to(KC_MEDIA_PREV_TRACK, KC_MEDIA_PLAY_PAUSE, KC_MEDIA_NEXT_TRACK);
+    map_base("0-=").to(KC_MUTE, KC_VOLD, KC_VOLU);
 
     // Numpad
     map_base(
@@ -127,17 +129,13 @@ DEFINE_LAYER(FN2, {
         "456"
         "0123"
     );
-
-    // TODO: interface like this? I guess you could default-init matrix and then still designate init the encoder
-    // encoder_map = ENCODER_CCW_CW(UG_VALD, UG_VALU);
 })
 static_assert(kLayerDef<Layer::FN2>.matrix[2][0] == KC_CAPS);
-static_assert(kLayerDef<Layer::FN2>.matrix[3][6] == BAT_LVL);
-static_assert(kLayerDef<Layer::FN2>.matrix[3][7] == BAT_LVL);
 
 DEFINE_LAYER(MOUSE, {
     fill(KC_NO);
     using key_defs::mouse_buttons;
+
     map_base_span("18").to(mouse_buttons<>);
     map_base(LSPACE, KC_ENTER).to_single(MS_BTN1);
     map_base(RSPACE).to_single(MS_BTN2);
@@ -149,6 +147,34 @@ DEFINE_LAYER(MOUSE, {
 
     map_base(KC_CAPS).to(QK_LAYER_LOCK);
 })
+
+DEFINE_LAYER(SELECT, {
+    fill(KC_NO);
+    map_base(KC_ESC).to(kMO(layer_self));
+    map_base(KC_CAPS).to(kMO(layer_self));
+    map_base("c").to(kTG(Layer::CONTROL));
+    map_base('b', RIGHT_B).to_single(kTG(Layer::BASE));
+})
+
+DEFINE_LAYER(CONTROL, {
+    fill(KC_NO);
+    map_base(KC_ESC).to(kMO(layer_self));
+    map_base(KC_CAPS).to(kMO(layer_self));
+
+    map_base_span("qr").to(BT_HST1, BT_HST2, BT_HST3, P2P4G); // Keeping this because its printed on the keys
+    map_base("az").to(UG_NEXT, UG_PREV);
+    map_base("sx").to(UG_HUEU, UG_HUED);
+    map_base("dc").to(UG_SATU, UG_SATD);
+    map_base("fv").to(UG_SPDU, UG_SPDD);
+
+    // TODO: might be way better to make these keys just control which var is being controlled and then you use the knob!!!
+    map_base(KNOB_PRESS, KNOB_CCW, KNOB_CW)
+        .to(UG_TOGG, UG_VALD, UG_VALU);
+
+    map_base('b', RIGHT_B).to_single(BAT_LVL);
+})
+static_assert(kLayerDef<Layer::CONTROL>.matrix[3][6] == BAT_LVL);
+static_assert(kLayerDef<Layer::CONTROL>.matrix[3][7] == BAT_LVL);
 
 extern "C" {
 

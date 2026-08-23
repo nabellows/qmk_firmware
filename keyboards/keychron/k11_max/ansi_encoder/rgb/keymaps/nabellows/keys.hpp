@@ -15,6 +15,7 @@ typedef enum {
 
 typedef enum {
     LSPACE = SAFE_RANGE,
+    RIGHT_B,
     FN1,
     FN2,
     KNOB_PRESS,
