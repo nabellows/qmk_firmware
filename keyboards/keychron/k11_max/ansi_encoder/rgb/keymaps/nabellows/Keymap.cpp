@@ -159,6 +159,10 @@ DEFINE_LAYER(MOUSE, {
     map_base(KC_LSFT, KC_RSFT).to_single(MS_ACL0);
     map_base(KC_LCTL).to(MS_ACL2);
 
+    // Speed adjustment
+    map_base(KNOB_PRESS, KNOB_CCW, KNOB_CW)
+        .to(VAR_RESET, VAR_MINUS, VAR_PLUS);
+
     map_base(KC_CAPS).to(kTG(layer_self));
 })
 
@@ -172,7 +176,7 @@ DEFINE_LAYER(CONTROL, {
     map_base("ehsab").to_single(CONTROL_VAR);
 
     map_base(KNOB_PRESS, KNOB_CCW, KNOB_CW)
-        .to(UG_TOGG, VAR_MINUS, VAR_PLUS);
+        .to(VAR_RESET, VAR_MINUS, VAR_PLUS);
 })
 
 extern "C" {

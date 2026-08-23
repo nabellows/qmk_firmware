@@ -24,6 +24,7 @@ typedef enum {
     CONTROL_VAR,
     VAR_MINUS,
     VAR_PLUS,
+    VAR_RESET,
 } custom_kc_t;
 
 namespace key_defs {

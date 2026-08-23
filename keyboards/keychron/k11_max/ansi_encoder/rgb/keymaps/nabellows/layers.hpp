@@ -40,7 +40,12 @@ constexpr auto kTO(Layer layer) { return TO(layer_state_t(layer)); }
 constexpr auto kTG(Layer layer) { return TG(layer_state_t(layer)); }
 constexpr auto kOSL(Layer layer) { return OSL(layer_state_t(layer)); }
 
+[[gnu::always_inline]]
+inline bool layer_state_is(Layer layer) {
+    return layer_state_is(layer_state_t(layer));
+}
+
+[[gnu::always_inline]]
 inline auto default_layer_set(Layer layer) {
     return default_layer_set(1 << layer_state_t(layer));
 }
-
