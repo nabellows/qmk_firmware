@@ -3,18 +3,22 @@
 
 #include "caps_word.hpp"
 #include "control.hpp"
+#include "defer.hpp"
 #include "key_util.hpp"
 #include "keys.hpp"
 #include "mouse.hpp"
+#include "rgb.hpp"
 #include "via.hpp"
 
 extern "C" {
 #include "action.h"
 #include "caps_word.h"
-#include "keymap_introspection.h"
+#include "eeconfig_snap_click.h"
 #include "keycodes.h"
+#include "keymap_introspection.h"
 #include "layers.hpp"
 #include "rgb_matrix.h"
+#include "snap_click.h"
 }
 
 struct OsState {
@@ -31,6 +35,9 @@ struct OsState {
 private:
     inline static Value val = MAC; // Not defined, but the dip_switch_update_user will be called in dip_switch_init on keyboard init
 };
+
+[[gnu::weak]]
+control::Var control::key_to_var(qmk_key_t base_key) { return control::Var::NONE; }
 
 extern "C" {
 #include "action_tapping.h"
@@ -71,11 +78,31 @@ void via_custom_value_command_kb(uint8_t *data, uint8_t length) {
     via_config::custom_value_command(data, length);
 }
 
+extern "C" snap_click_config_t snap_click_pair[SNAP_CLICK_COUNT];
+
+// Gamer boi a/d snap tap
+void load_snap_click_defaults() {
+    static_assert(SNAP_CLICK_COUNT > 0);
+    auto& first = snap_click_pair[0];
+    // Stolen from snap_click.c, don't feel like modifying it, should be stable unless they are fucking dumb.
+    enum {
+        SNAP_CLICK_TYPE_NONE = 0,
+        SNAP_CLICK_TYPE_REGULAR, // Doesn't appear in the launcher, but seems to only implement releasing the old key, not re-pressing when held and other released
+        SNAP_CLICK_TYPE_LAST_INPUT, // "Last Key Priority"
+    };
+    if (first.type == 0) {
+        first.type = SNAP_CLICK_TYPE_LAST_INPUT;
+        first.key[0] = KC_A;
+        first.key[1] = KC_D;
+    }
+}
+
 void keyboard_post_init_user() {
 #ifdef DEBUG
     debug_enable = true;
 #endif
     mouse::load_speeds();
+    load_snap_click_defaults();
 }
 
 void eeconfig_init_user() {
@@ -84,6 +111,7 @@ void eeconfig_init_user() {
 }
 
 void housekeeping_task_user() {
+    deferred_executor_housekeeping();
     mouse::housekeeping_task();
     via_config::housekeeping_task();
 }
@@ -158,6 +186,11 @@ layer_state_t layer_state_set_user(layer_state_t state) {
 }
 
 bool rgb_matrix_indicators_user() {
+    if (rgb::indicator_overlay) {
+        const auto [r, g, b] = *rgb::indicator_overlay;
+        rgb_matrix_set_color_all(r, g, b);
+        return false;
+    }
     if (is_caps_word_on()) {
         //FIXME: with effects like raindrops, takes a bit to reset the colors, any way to save/pause and resume state?
         rgb_matrix_set_color_all(RGB_WHITE);

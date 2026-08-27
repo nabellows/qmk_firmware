@@ -2,13 +2,18 @@
 
 #include "compat.hpp"
 #include "key_util.hpp"
+#include "rgb.hpp"
 
 #include <stdint.h>
 
 extern "C" {
+#include "action.h"
+#include "color.h"
+#include "eeconfig_snap_click.h"
 #include "keycodes.h"
 #include "process_underglow.h"
 #include "rgb_matrix.h"
+#include "snap_click.h"
 }
 
 namespace control {
@@ -20,57 +25,62 @@ enum class Var : uint8_t {
     HUE,
     SATURATION,
     SPEED,
+    SNAP_CLICK,
 };
 
 inline Var current_var = Var::NONE;
 
-inline void select_var(qmk_key_t base_keycode) {
-    switch (base_keycode) {
-        case KC_E: current_var = Var::EFFECT;     break;
-        case KC_H: current_var = Var::HUE;        break;
-        case KC_A: current_var = Var::SATURATION; break;
-        case KC_B: current_var = Var::BRIGHTNESS; break;
-        case KC_S: current_var = Var::SPEED;      break;
-    }
+Var key_to_var(qmk_key_t base_key);
+
+inline Var select_var(qmk_key_t base_key) {
+    current_var = key_to_var(base_key);
+    return current_var;
 }
 
-inline qmk_key_t underglow_var_keycode(bool increase) {
-    switch (current_var) {
-        case Var::NONE:       return KC_NO;
-        case Var::BRIGHTNESS: return increase ? UG_VALU : UG_VALD;
-        case Var::EFFECT:     return increase ? UG_NEXT : UG_PREV;
-        case Var::HUE:        return increase ? UG_HUEU : UG_HUED;
-        case Var::SATURATION: return increase ? UG_SATU : UG_SATD;
-        case Var::SPEED:      return increase ? UG_SPDU : UG_SPDD;
+extern "C" snap_click_config_t snap_click_pair[SNAP_CLICK_COUNT];
+
+// WARNING: For now, do NOT disable via control then write a new one via launcher. Well, unless swapping is what you want.
+inline void adjust_snap_click(bool reset) {
+    static bool enabled = true;
+    if (!(reset && enabled)) { // reset just re-enables
+        static uint8_t old_types[SNAP_CLICK_COUNT];
+        for (int i = 0; i < SNAP_CLICK_COUNT; ++i) {
+            std::swap(old_types[i], snap_click_pair[i].type);
+        }
+        enabled = !enabled;
     }
-    __builtin_unreachable(); // until we add non-UG controls
-}
+    rgb::flash(enabled ? rgb_t{RGB_GREEN} : rgb_t{RGB_RED}, 500);
+};
 
 inline void adjust_var(bool increase, keyrecord_t *record) {
-    const qmk_key_t ug_keycode = underglow_var_keycode(increase);
-    if (ug_keycode != KC_NO) process_underglow(ug_keycode, record);
+    switch (current_var) {
+        // Written this way to make a single switch statement force all values to have an impl for now
+        case Var::NONE: return;
+        case Var::BRIGHTNESS: process_underglow(increase ? UG_VALU : UG_VALD, record); return;
+        case Var::EFFECT:     process_underglow(increase ? UG_NEXT : UG_PREV, record); return;
+        case Var::HUE:        process_underglow(increase ? UG_HUEU : UG_HUED, record); return;
+        case Var::SATURATION: process_underglow(increase ? UG_SATU : UG_SATD, record); return;
+        case Var::SPEED:      process_underglow(increase ? UG_SPDU : UG_SPDD, record); return;
+        case Var::SNAP_CLICK: return adjust_snap_click(false);
+    }
 }
 
 inline void reset_var() {
     switch (current_var) {
         case Var::NONE:
-            rgb_matrix_toggle();
-            break;
+            return rgb_matrix_toggle();
         case Var::BRIGHTNESS:
-            rgb_matrix_sethsv(rgb_matrix_get_hue(), rgb_matrix_get_sat(), RGB_MATRIX_DEFAULT_VAL);
-            break;
+            return rgb_matrix_sethsv(rgb_matrix_get_hue(), rgb_matrix_get_sat(), RGB_MATRIX_DEFAULT_VAL);
         case Var::EFFECT:
-            rgb_matrix_mode(RGB_MATRIX_DEFAULT_MODE);
-            break;
+            return rgb_matrix_mode(RGB_MATRIX_DEFAULT_MODE);
         case Var::HUE:
-            rgb_matrix_sethsv(RGB_MATRIX_DEFAULT_HUE, rgb_matrix_get_sat(), rgb_matrix_get_val());
-            break;
+            return rgb_matrix_sethsv(RGB_MATRIX_DEFAULT_HUE, rgb_matrix_get_sat(), rgb_matrix_get_val());
         case Var::SATURATION:
-            rgb_matrix_sethsv(rgb_matrix_get_hue(), RGB_MATRIX_DEFAULT_SAT, rgb_matrix_get_val());
-            break;
+            return rgb_matrix_sethsv(rgb_matrix_get_hue(), RGB_MATRIX_DEFAULT_SAT, rgb_matrix_get_val());
         case Var::SPEED:
-            rgb_matrix_set_speed(RGB_MATRIX_DEFAULT_SPD);
-            break;
+            return rgb_matrix_set_speed(RGB_MATRIX_DEFAULT_SPD);
+        case Var::SNAP_CLICK:
+            return adjust_snap_click(true);
     }
 }
 

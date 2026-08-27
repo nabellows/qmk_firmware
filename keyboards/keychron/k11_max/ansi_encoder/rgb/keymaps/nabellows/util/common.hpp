@@ -30,3 +30,6 @@ constexpr void constexpr_fail(
         ? *static_cast<volatile char*>(nullptr)
         : 0)
 {}
+
+template<class T>
+concept CheapType = std::is_trivially_copyable_v<T> && sizeof(T) <= 2 * sizeof(void*);

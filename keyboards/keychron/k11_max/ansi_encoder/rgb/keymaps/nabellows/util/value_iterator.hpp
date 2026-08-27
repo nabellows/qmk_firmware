@@ -8,15 +8,13 @@
 #include <type_traits>
 #include <utility>
 
+#include "common.hpp"
+
 template<class T, class D = std::ptrdiff_t>
 concept value_bidirectional =
     requires(T value) {
         { --value } -> std::same_as<T&>;
     };
-
-
-template<class T>
-concept cheap_type = std::is_trivially_copyable_v<T> && sizeof(T) <= 2 * sizeof(void*);
 
 template<class T, class D = std::ptrdiff_t>
 concept value_random_access =
@@ -36,7 +34,7 @@ struct ValueIterator {
     using value_type      = T;
     using difference_type = std::ptrdiff_t;
 
-    static constexpr bool can_random_access = cheap_type<T> && value_random_access<T, difference_type>;
+    static constexpr bool can_random_access = CheapType<T> && value_random_access<T, difference_type>;
 
     using iterator_concept =
         std::conditional_t<

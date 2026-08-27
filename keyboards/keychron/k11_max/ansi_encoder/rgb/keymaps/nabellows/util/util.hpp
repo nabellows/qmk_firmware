@@ -269,6 +269,14 @@ constexpr decltype(auto) unpack_enum(auto&& f) {
     });
 }
 
+template<class Enum>
+requires (kIsPackedEnum<Enum> && requires{ kEnumLen<Enum>; })
+constexpr decltype(auto) foreach_enum(auto&& f) {
+    return invoke_with_index_seq<kEnumLen<Enum>>([&]<sz...is>() -> decltype(auto) {
+        return (tinvoke_nttp<Enum(is)>(f), ...);
+    });
+}
+
 template<class... Ts>
 concept AllSame =
     sizeof...(Ts) == 0 ||
@@ -401,6 +409,89 @@ constexpr auto infinite_range(R&& r)
     return infinite_view<std::views::all_t<R>>{
         std::views::all(FWD(r))
     };
+}
+
+// NOTE: Currently none of the constructors, helpers, etc, are move-conscious
+// Assuming its constexpr stuff, forget about it
+template<class K, class V, sz N>
+struct ConstexprMap {
+    using Data = std::array<std::pair<K, V>, N>;
+    Data data;
+
+    constexpr ConstexprMap(Data const& arr)
+    : data(arr) {}
+
+    // Not compatible with std::map, sure, but safer API that works with both constexpr and no-exception world
+    constexpr V const* at(K const& key) const {
+        if constexpr (N <= 12) { // Using the pack expansion proved significantly helpful in optimization assembly, but we limit it
+            V const* result = nullptr;
+            invoke_with_index_seq<N>([&]<sz...is> {
+                (void)((key == data[is].first
+                    ? (result = &data[is].second, true)
+                    : false) || ...);
+            });
+            return result;
+        } else {
+            for (auto const& [k, v] : data) {
+                if (k == key) return &v;
+            }
+            return nullptr;
+        }
+    }
+
+    constexpr bool contains(K const& key) const {
+        return at(key) != nullptr;
+    }
+
+    constexpr auto operator[](K const& key) const {
+        return at(key);
+    }
+
+    constexpr auto begin() const {
+        return data.begin();
+    }
+
+    constexpr auto end() const {
+        return data.end();
+    }
+};
+
+template<class K, class V, sz N>
+struct ConstexprMapWithDefault : ConstexprMap<K, V, N> {
+    const V default_;
+    using Base = ConstexprMap<K, V, N>;
+
+    constexpr ConstexprMapWithDefault(V const& default_, Base::Data const& arr)
+    : Base{ arr }, default_{ default_ }{}
+
+    constexpr V const& at(K const& key) const {
+        auto ptr = Base::at(key);
+        return ptr ? *ptr : default_;
+    }
+
+    constexpr V const& operator[](K const& key) const {
+        return at(key);
+    }
+};
+
+template<class K, class V, sz N>
+constexpr ConstexprMap<K, V, N> ce_map(std::pair<K,V> const (&arr)[N]) {
+    return { std::to_array(arr) };
+}
+
+template<class K, class V>
+constexpr ConstexprMap<K, V, 0> ce_map(std::array<std::pair<K, V>, 0> const& arr) {
+    return { arr };
+}
+
+template<class K, class V, sz N>
+constexpr ConstexprMapWithDefault<K, V, N> ce_map(V const& default_, std::pair<K,V> const (&arr)[N]) {
+    return { default_, std::to_array(arr) };
+}
+
+template<class K, class V>
+constexpr ConstexprMapWithDefault<K, V, 0> ce_map(V const& default_, std::array<std::pair<K, V>, 0> const& arr) {
+    return { default_, arr };
 }
 
 //TODO: dope pattern that would have helped in layer_util (though compile times...), would have been a view which can handle elems of Variant<Range1, Range2> etc, which all are

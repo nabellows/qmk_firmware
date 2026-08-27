@@ -1,7 +1,9 @@
+#include "common.hpp"
 #include "compat.hpp"
 
 #include "combos.hpp"
 #include "config.h"
+#include "control.hpp"
 #include "key_util.hpp"
 #include "keys.hpp"
 #include "layer_util.hpp"
@@ -169,15 +171,32 @@ DEFINE_LAYER(MOUSE, {
     map_base(KC_CAPS).to(kTG(layer_self));
 })
 
+// Select the variable adjusted by the encoder: Effect, Hue, Speed, sAturation, Brightness, sNap-click
+constexpr inline auto kControlKeys = ce_map<Key, control::Var>(control::Var::NONE, {
+    { 'e', control::Var::EFFECT },
+    { 'h', control::Var::HUE },
+    { 's', control::Var::SPEED },
+    { 'a', control::Var::SATURATION },
+    { 'b', control::Var::BRIGHTNESS },
+    { 'n', control::Var::SNAP_CLICK },
+});
+
+[[gnu::optimize("O3")]] // Fully folds the small-map pack expansion into constant comparisons/returns.
+control::Var control::key_to_var(qmk_key_t base_key) {
+    return kControlKeys[base_key];
+}
+
 DEFINE_LAYER(CONTROL, {
     fill(KC_NO);
     map_base(KC_ESC).to(kMO(layer_self));
     map_base(KC_CAPS).to(kMO(layer_self));
 
+    //TODO: move to a better layer IMO ('wireless' or other). I like how control does nothing if not using knob
     map_base_span("qr").to(BT_HST1, BT_HST2, BT_HST3, P2P4G); // Keeping this because its printed on the keys
-    // Select the variable adjusted by the encoder: Effect, Hue, Speed, sAturation, Brightness.
-    map_base("ehsab").to_single(CONTROL_VAR);
 
+    for (auto& [key, var] : kControlKeys) {
+        map_base(key).to(CONTROL_VAR);
+    }
     map_base(KNOB_PRESS, KNOB_CCW, KNOB_CW)
         .to(VAR_RESET, VAR_MINUS, VAR_PLUS);
 })
