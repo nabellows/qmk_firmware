@@ -20,6 +20,7 @@ CompileFlags:
             -mcall-prologues,
             -D__has_include*,
             -mlra,
+            -fconcepts-diagnostics-depth=*,
         ]
     Compiler: arm-none-eabi-gcc
 Diagnostics:
