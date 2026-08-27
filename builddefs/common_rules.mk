@@ -86,14 +86,16 @@ CFLAGS += -fcommon
 CXXFLAGS += $(CXXSTANDARD)
 CXXFLAGS += $(CXXDEFS)
 CXXFLAGS += -O$(OPT)
-# to suppress "warning: only initialized variables can be placed into program memory area"
-CXXFLAGS += -w
 CXXFLAGS += -Wall
-CXXFLAGS += -Wundef
 
 ifneq ($(strip $(ALLOW_WARNINGS)), yes)
     CXXFLAGS += -Werror
 endif
+
+# NABELLOWS
+CXXFLAGS := $(filter-out $(CSTANDARD),$(CXXFLAGS))
+CXXFLAGS := $(filter-out -Wstrict-prototypes,$(CXXFLAGS))
+$(info CXXFLAGS=$(CXXFLAGS))
 
 #---------------- Assembler Options ----------------
 

@@ -1,9 +1,15 @@
 #pragma once
 
+#include "compat.hpp"
 #include "key_util.hpp"
+
+extern "C" {
+
 #include "keycodes.h"
 #include "modifiers.h"
 #include "quantum_keycodes.h"
+
+}
 
 typedef enum {
     //TODO: make it still send KC_CTRL when pressed (like with mouse ctrl click)

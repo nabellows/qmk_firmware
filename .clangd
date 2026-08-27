@@ -1,6 +1,7 @@
 CompileFlags:
     Add:
         [
+            -Wno-c99-designator,
             -Wno-unknown-attributes,
             -Wno-maybe-uninitialized,
             -Wno-unknown-warning-option,
@@ -10,6 +11,7 @@ CompileFlags:
         ]
     Remove:
         [
+            -fconcepts-diagnostics-depth=*,
             -W*,
             -mmcu=*,
             -mcpu=*,
@@ -20,7 +22,6 @@ CompileFlags:
             -mcall-prologues,
             -D__has_include*,
             -mlra,
-            -fconcepts-diagnostics-depth=*,
         ]
     Compiler: arm-none-eabi-gcc
 Diagnostics:

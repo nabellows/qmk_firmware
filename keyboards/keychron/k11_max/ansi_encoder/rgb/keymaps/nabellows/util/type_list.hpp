@@ -8,7 +8,6 @@
 template<class...Ts>
 struct TypeList;
 
-#define HAS_PACK_ELEM_BUILTIN 0
 #if defined (__has_builtin)
 #if __has_builtin(__type_pack_element)
 #define HAS_PACK_ELEM_BUILTIN 1

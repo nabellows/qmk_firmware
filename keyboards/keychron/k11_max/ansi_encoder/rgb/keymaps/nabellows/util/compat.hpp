@@ -1,7 +1,8 @@
 #pragma once
 
-#define STR_IMPL(x) #x
-#define STR(x) STR_IMPL(x)
+// quantum/util.h stole 'STR', and too hard to get rid of the re-definition warnings
+#define TO_STR_IMPL(x) #x
+#define TO_STR(x) TO_STR_IMPL(x)
 
 #if __cplusplus
 
@@ -34,7 +35,8 @@ constexpr size_t kArraySize<std::array<T, N>> = N;
         for (char c : str) commas += c == ',';
         return commas;
     }
-    constexpr int kNumEncoders = count_commas(STR(ENCODER_A_PINS)) + 1;
+    constexpr int kNumEncoders = count_commas(TO_STR(ENCODER_A_PINS)) + 1;
+#   undef NUM_ENCODERS
 #   define NUM_ENCODERS kNumEncoders
 #endif
 

@@ -174,7 +174,7 @@ protected:
         constexpr auto to_dst_range() {
             std::vector<Key*> real_keys;
             real_keys.reserve(raw_size);
-            for (int i = 0; i < raw_size; ++i) {
+            for (sz i = 0; i < raw_size; ++i) {
                 if (base_data[i] != KC_NO) {
                     real_keys.push_back(&data[i]);
                 }
@@ -295,10 +295,6 @@ struct LayerDef : LayerDefImpl<layer> {
 
 template<class = void>
 struct KeymapDef {
-#define LAYOUT(layer) [layer_state_t(layer)] = LAYOUT_69_ansi
-// Just self documenting
-#define MAP(KEY, NEW_MAP) NEW_MAP
-
     using enum Layer;
     Key keymap[kNumLayers][MATRIX_ROWS][MATRIX_COLS]{};
 #ifdef ENCODER_MAP_ENABLE

@@ -284,12 +284,12 @@ constexpr auto ce_for_each_val(auto F, Proj proj = {}) {
     auto invoke = [&]<auto val>() -> decltype(auto) {
         if constexpr (requires { tinvoke_nttp<val>(F, state); }) {
             ++state.i;
-            auto voidless = [&]->decltype(auto){ return voidless_invoke([&]{ return tinvoke_nttp<val>(F, state); }); };
+            auto voidless = [&]()->decltype(auto){ return voidless_invoke([&]{ return tinvoke_nttp<val>(F, state); }); };
             using R = decltype(proj(voidless()));
             if (state.m_break) return R{}; // For now, return type has to be default constructible, if you wanna use break, consider std::optional projection
             return proj(voidless());
         } else {
-            auto voidless = [&]->decltype(auto){ return voidless_invoke([&]{ return tinvoke_nttp<val>(F); }); };
+            auto voidless = [&]()->decltype(auto){ return voidless_invoke([&]{ return tinvoke_nttp<val>(F); }); };
             return proj(voidless());
         }
     };

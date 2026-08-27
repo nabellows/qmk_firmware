@@ -14,6 +14,10 @@ concept value_bidirectional =
         { --value } -> std::same_as<T&>;
     };
 
+
+template<class T>
+concept cheap_type = std::is_trivially_copyable_v<T> && sizeof(T) <= 2 * sizeof(void*);
+
 template<class T, class D = std::ptrdiff_t>
 concept value_random_access =
     value_bidirectional<T, D> &&
@@ -32,9 +36,11 @@ struct ValueIterator {
     using value_type      = T;
     using difference_type = std::ptrdiff_t;
 
+    static constexpr bool can_random_access = cheap_type<T> && value_random_access<T, difference_type>;
+
     using iterator_concept =
         std::conditional_t<
-            value_random_access<T, difference_type>,
+            can_random_access,
             std::random_access_iterator_tag,
             std::conditional_t<
                 value_bidirectional<T, difference_type>,
@@ -48,7 +54,7 @@ struct ValueIterator {
 
     T value;
 
-    constexpr T const& operator*() const {
+    constexpr T operator*() const {
         return value;
     }
 
@@ -79,21 +85,21 @@ struct ValueIterator {
     }
 
     constexpr ValueIterator& operator+=(difference_type n)
-        requires value_random_access<T, difference_type>
+        requires can_random_access
     {
         value += n;
         return *this;
     }
 
     constexpr ValueIterator& operator-=(difference_type n)
-        requires value_random_access<T, difference_type>
+        requires can_random_access
     {
         value -= n;
         return *this;
     }
 
-    constexpr T const& operator[](difference_type n) const
-        requires value_random_access<T, difference_type>
+    constexpr T operator[](difference_type n) const
+        requires can_random_access
     {
         return value + n;
     }
@@ -102,7 +108,7 @@ struct ValueIterator {
         ValueIterator it,
         difference_type n
     )
-        requires value_random_access<T, difference_type>
+        requires can_random_access
     {
         return it += n;
     }
@@ -111,7 +117,7 @@ struct ValueIterator {
         difference_type n,
         ValueIterator it
     )
-        requires value_random_access<T, difference_type>
+        requires can_random_access
     {
         return it += n;
     }
@@ -120,7 +126,7 @@ struct ValueIterator {
         ValueIterator it,
         difference_type n
     )
-        requires value_random_access<T, difference_type>
+        requires can_random_access
     {
         return it -= n;
     }
@@ -129,7 +135,7 @@ struct ValueIterator {
         const ValueIterator& lhs,
         const ValueIterator& rhs
     )
-        requires value_random_access<T, difference_type>
+        requires can_random_access
     {
         return static_cast<difference_type>(lhs.value - rhs.value);
     }

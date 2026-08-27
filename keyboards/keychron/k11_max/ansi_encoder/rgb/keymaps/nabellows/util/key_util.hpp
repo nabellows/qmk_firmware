@@ -54,6 +54,7 @@ constexpr qmk_key_t char_to_key(char c) {
     if (i != std::string_view::npos) return S(keys[i]);
 
     constexpr_fail("char not supported for char_to_key");
+    return KC_NO;
 }
 
 constexpr char key_to_char(qmk_key_t k) {
@@ -68,6 +69,7 @@ constexpr char key_to_char(qmk_key_t k) {
         if (k == S(keys[i])) return shifted_char_keys[i];
     }
     constexpr_fail("key not supported by key_to_char");
+    return 0;
 }
 
 struct Key {
@@ -154,6 +156,7 @@ static_assert(KeyInputRange<const KeyList<9>>);
 
 template<sz N>
 KeyList(const char (&str)[N]) -> KeyList<N-1>;
+//TODO: it should allow passing mixed string/constant/alias like KeyList("abc", ANOTHER_ALIAS_KEY)
 template<class...Keys>
 requires (std::convertible_to<Keys, Key> && ...)
 KeyList(Keys...) -> KeyList<sizeof...(Keys)>;
@@ -177,6 +180,7 @@ protected:
     qmk_key_t first; // use raw key since it is handled by iterator better
 };
 static_assert(std::ranges::random_access_range<InfiniteKeyRange>);
+static_assert(InfiniteRange<InfiniteKeyRange>);
 
 template<sz N = std::dynamic_extent>
 class KeyRange : public InfiniteKeyRange {

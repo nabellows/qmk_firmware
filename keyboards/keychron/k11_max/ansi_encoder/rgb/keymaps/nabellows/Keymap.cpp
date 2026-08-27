@@ -186,10 +186,10 @@ extern "C" {
 namespace {
 constexpr PROGMEM KeymapDef<> KEYMAP;
 }
-extern const auto& keymaps = KEYMAP.keymap;
+const auto& keymaps = KEYMAP.keymap;
 
 #ifdef ENCODER_MAP_ENABLE
-extern const auto& encoder_map = KEYMAP.encoder_map;
+const auto& encoder_map = KEYMAP.encoder_map;
 #endif
 } // extern "C"
 
