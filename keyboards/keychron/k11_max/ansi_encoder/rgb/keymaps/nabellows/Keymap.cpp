@@ -60,7 +60,7 @@ DEFINE_LAYER(NORMIE, {
     map_base(KNOB_PRESS, KNOB_CCW, KNOB_CW)
         .to(KC_MUTE, KC_VOLD, KC_VOLU);
 
-    map_base(KC_LWIN).to(KC_NO); // Win key screws you in games (smh win+ctrl+d losing me OW game). Use Fn1. Actually, prefer right hand.
+    map_base(KC_LWIN).to(TD(TD_LGUI)); // Win key screws you in games (smh win+ctrl+d losing me OW game). Use Fn1. Actually, prefer right hand.
     // Or, escape hatch to BASE somehow (double tab fn1?) Still need kinda an ergo left hand way for stuff like win+shift+s
 })
 
@@ -90,7 +90,7 @@ DEFINE_LAYER(FN1, {
     // Do we ever even really want to layer lock this version of fn1? Perhaps better to make some real, useful layers on 1/2, numkeys,
     //  keys, etc
     map_base(RSPACE, KC_RCMD).to_single(QK_LAYER_LOCK);
-    use_base(KC_LWIN);
+    map_base(KC_LWIN).to(OSM_LGUI);
 
     map_base_span("1=").to(f_keys<1, 12>);
     map_base(KC_DEL, KC_HOME).to(KC_INS, KC_END);
@@ -109,7 +109,7 @@ DEFINE_LAYER(FN2, {
     use_base(KC_CAPS);
     map_base(KC_RCMD, LSPACE).to_single(QK_LAYER_LOCK);
 
-    map_base(KC_LWIN).to(OSM(MOD_LGUI));
+    map_base(KC_LWIN).to(OSM_LGUI);
 
     // Assorted typical keyboard keys
     map_base("12").to(KC_BRID, KC_BRIU);

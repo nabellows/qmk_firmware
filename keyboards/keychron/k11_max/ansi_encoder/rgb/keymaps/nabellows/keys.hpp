@@ -7,6 +7,7 @@ extern "C" {
 
 #include "keycodes.h"
 #include "modifiers.h"
+#include "process_tap_dance.h"
 #include "quantum_keycodes.h"
 
 }
@@ -17,6 +18,7 @@ typedef enum {
     GUI_SPC = MT(MOD_LGUI, KC_SPC),
     T_CAPS_WORD = QK_CAPS_WORD_TOGGLE,
     RSPACE = KC_SPACE,
+    OSM_LGUI = OSM(MOD_LGUI),
 } kc_aliases_t;
 
 typedef enum {
@@ -32,6 +34,20 @@ typedef enum {
     VAR_PLUS,
     VAR_RESET,
 } custom_kc_t;
+
+typedef enum {
+    TD_LGUI,
+} tapdances_t;
+
+inline tap_dance_action_t kTapDanceActions[] = {[TD_LGUI] = {
+    // TODO: purposely expanded ACTION_TAP_DANCE_DOUBLE to fix some C-isms, a C++ super tap-dance which does this would be nicer
+    .fn        = {tap_dance_pair_on_each_tap, tap_dance_pair_finished, tap_dance_pair_reset, nullptr},
+    .user_data = []{ static tap_dance_pair_t pair{KC_NO, KC_LGUI}; return &pair; }(),
+}};
+
+extern "C" {
+inline tap_dance_action_t (&tap_dance_actions)[ARRAY_SIZE(kTapDanceActions)] = kTapDanceActions;
+}
 
 namespace key_defs {
 
