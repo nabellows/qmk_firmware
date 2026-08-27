@@ -95,6 +95,7 @@ DEFINE_LAYER(FN1, {
     map_base_span("1=").to(f_keys<1, 12>);
     map_base(KC_DEL, KC_HOME).to(KC_INS, KC_END);
 
+    map_base("wasd").to(arrows_wasd);
     map_base("hjkl").to(arrows_hjkl);
 })
 static_assert(kLayerDef<Layer::FN1>.matrix[0][3] == KC_F3);
